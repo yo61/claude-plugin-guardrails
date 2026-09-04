@@ -63,10 +63,39 @@ targets_real_bash() {
     || matches "${BOUNDARY}bash[[:space:]]+(-[cs]|<)"
 }
 
-# Deleting a scratch, temp, or regenerable dependency tree. `trash` is the wrong
-# tool for these: slow on large trees, and it fills the Trash with rubbish.
-targets_disposable_path() {
-  matches '(/tmp/|/private/tmp/|/var/folders/|scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|/dist/|/build/|target/debug|target/release|\.lastlight)'
+# Scratch, temp and regenerable trees. `trash` is the wrong tool for these:
+# slow on large trees, and it fills the Trash with rubbish.
+readonly DISPOSABLE='(/tmp/|/private/tmp/|/var/folders/|scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|/dist/|/build/|target/debug|target/release|\.lastlight)'
+
+# The paths an `rm` would delete, one per line, with flags dropped.
+rm_targets() {
+  local args tok
+  args=$(sed -E -n 's/.*(^|[;|&(])[[:space:]]*rm[[:space:]]+([^;|&]*).*/\2/p' <<< "$cmd" | head -1)
+  for tok in $args; do
+    [[ $tok == -* ]] && continue
+    printf '%s\n' "$tok"
+  done
+}
+
+# True only when EVERY target is disposable.
+#
+# The earlier version tested the whole COMMAND STRING for a disposable path,
+# which meant one disposable argument exempted the entire command:
+# `rm -rf .lastlight ~/important-project` was allowed, and permanently deleted
+# the project the rule exists to protect. That applied to every entry in the
+# list -- node_modules, /tmp, .venv -- so it was a hole in the shipped v0.1.0,
+# not something the .lastlight entry introduced. Found by the independent
+# review; the probe is in the test suite below.
+#
+# An `rm` with no parsable target is NOT exempt: unknown means protected.
+all_rm_targets_disposable() {
+  local target found=0
+  while IFS= read -r target; do
+    [[ -n $target ]] || continue
+    found=1
+    grep -Eq "$DISPOSABLE" <<< "$target" || return 1
+  done < <(rm_targets)
+  [[ $found -eq 1 ]]
 }
 
 check_tool_choice() {
@@ -99,7 +128,7 @@ check_tool_choice() {
   rule "${BOUNDARY}which[[:space:]]+[a-zA-Z0-9_.-]+([[:space:]]|$)" \
     'Use `command -v <cmd>`, not `which`. `which` is an external binary with inconsistent behaviour across systems and a non-POSIX exit status; `command -v` is a POSIX shell builtin, so it is also the correct choice inside scripts and GitHub Actions `run:` blocks.'
 
-  if ! targets_disposable_path; then
+  if ! all_rm_targets_disposable; then
     rule "${BOUNDARY}rm[[:space:]]+-[a-zA-Z]*(rf|fr|Rf|fR)[a-zA-Z]*([[:space:]]|$)" \
       'Use `trash <path>`, not `rm -rf` -- it moves to the macOS Trash and stays recoverable. (Scratch, temp and regenerable trees such as /tmp, node_modules and .venv are exempt and not blocked; `trash` is the wrong tool for those.)'
   fi

@@ -87,6 +87,14 @@ expect ALLOW 'rm -rf /tmp/scratch-thing'
 expect ALLOW 'rm -rf node_modules && pnpm install'
 expect ALLOW 'rm -rf .venv'
 expect ALLOW 'rm -rf .lastlight/pr-review'
+expect ALLOW 'rm -rf node_modules .venv'
+# A disposable argument must not exempt the WHOLE command. This was a hole in
+# the shipped v0.1.0: the exemption tested the command string, so one
+# disposable path allowed `rm -rf` to delete a protected tree beside it.
+expect BLOCK 'rm -rf .lastlight ~/important-project'
+expect BLOCK 'rm -rf node_modules ~/important-project'
+expect BLOCK 'rm -rf /tmp/scratch ~/important-project'
+expect BLOCK 'rm -rf .venv ~/src/realwork'
 expect ALLOW 'trash ~/important-project'
 expect ALLOW 'rm -f single-file.txt'
 
