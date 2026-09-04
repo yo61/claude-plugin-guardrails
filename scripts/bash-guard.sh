@@ -78,7 +78,7 @@ readonly DISPOSABLE='(/tmp/|/private/tmp/|/var/folders/|scratchpad|node_modules|
 #
 # Splitting on separators first means each invocation is considered on its own.
 rm_targets() {
-  local seg tok skip_next
+  local seg tok skip_next end_of_opts
   # `set -f` for the whole scan: the word list below is deliberately unquoted so
   # the shell splits it, but without noglob it would also PATHNAME-EXPAND. A
   # target containing `*` would then be replaced by whatever happens to exist in
@@ -98,7 +98,18 @@ rm_targets() {
     # deny -- a false block built out of two permitted commands.
     [[ $seg =~ (^|[[:space:]])-[a-zA-Z]*(rf|fr|Rf|fR)[a-zA-Z]*([[:space:]]|$) ]] || continue
     skip_next=0
+    end_of_opts=0
     for tok in ${seg#rm }; do
+      # `--` ends option parsing: everything after it is a PATH, however it is
+      # spelled. Without this, a dash-prefixed target was discarded as a flag --
+      # `rm -rf -- -importantfile node_modules` reported only `node_modules`,
+      # the exemption saw an all-disposable list, and a real file was deleted
+      # with no Trash recovery. That is the same bypass class as the chained and
+      # multi-target holes, reached through argument syntax instead.
+      if [[ $end_of_opts -eq 0 && $tok == -- ]]; then
+        end_of_opts=1
+        continue
+      fi
       tok=${tok%)} # a trailing `)` from a subshell
       # Redirections are not paths. Without this, `rm -rf .venv 2>/dev/null`
       # yielded `/dev/null` as a target, no disposable match, and the guard told
@@ -114,7 +125,7 @@ rm_targets() {
         continue
       fi
       [[ $tok =~ ^[0-9]*(\>|\<) ]] && continue
-      [[ $tok == -* ]] && continue
+      [[ $end_of_opts -eq 0 && $tok == -* ]] && continue
       [[ -n $tok ]] && printf '%s\n' "$tok"
     done
   done < <(tr ';|&' '\n' <<< "$cmd")

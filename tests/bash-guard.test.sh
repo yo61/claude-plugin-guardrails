@@ -125,6 +125,14 @@ expect ALLOW 'rm file.txt && rm -rf .venv'
 # ...but a recursive one still counts, wherever it sits in the chain.
 expect BLOCK 'rm -f README.md; rm -rf ~/important-project'
 expect BLOCK 'rm -rf ~/important-project; rm -f scratch.txt'
+# `--` ends option parsing: a dash-prefixed token after it is a PATH, not a
+# flag. Discarding it as a flag left an all-disposable target list and allowed a
+# real deletion — the same bypass class, via argument syntax.
+expect BLOCK 'rm -rf -- -importantfile node_modules'
+expect BLOCK 'rm -rf -- -importantfile; rm -rf node_modules'
+expect BLOCK 'rm -rf -- ~/important-project'
+expect ALLOW 'rm -rf -- node_modules'
+expect ALLOW 'rm -rf -- node_modules .venv'
 # A wildcard must be read as TEXT, never expanded against the guard's own cwd:
 # the guard's process never follows a `cd` from the command it is judging.
 expect BLOCK 'rm -rf ~/projects/*'
