@@ -323,7 +323,7 @@ rm_targets() {
       [[ $end_of_opts -eq 0 && $seen_operand -eq 0 && $tok == -* ]] && continue
       if [[ -n $tok ]]; then
         seen_operand=1
-        printf '%s\n' "$tok"
+        printf '%s\0' "$tok"
       fi
     done < <(printf '%s' "${seg#rm }" | awk "$TOKENISE")
   done < <(printf '%s' "$cmd" | awk "$SEGMENT")
@@ -343,9 +343,16 @@ rm_targets() {
 # An `rm` with no parsable target is NOT exempt: unknown means protected.
 all_rm_targets_disposable() {
   local target found=0
-  while IFS= read -r target; do
+  while IFS= read -r -d '' target; do
     [[ -n $target ]] || continue
     found=1
+    # A newline BELONGS to the filename that contains it. Passing targets one
+    # per line split such a name into several, each judged on its own, so
+    # `rm -rf "node_modules<newline>node_modules"` -- one directory with an
+    # odd name -- was read as two disposable ones and exempted. Targets are
+    # NUL-separated for that reason, and one that still contains a newline is
+    # not something this check can judge.
+    [[ $target == *$'\n'* ]] && return 1
     # A traversing path cannot be judged by substring match: DISPOSABLE matched
     # `.lastlight/../important-project`, which deletes the project NEXT TO the
     # scratch dir, not the scratch dir. Rather than normalise -- which would

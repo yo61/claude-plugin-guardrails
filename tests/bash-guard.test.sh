@@ -372,5 +372,11 @@ expect ALLOW $'rm -rf .venv\nrm -rf node_modules'
 expect BLOCK $'rm -rf ".venv\n~/important-project"'
 expect BLOCK $'rm -rf \'.venv\n~/important-project\''
 
+# One directory with a newline in its NAME is not two directories. Judging the
+# name line by line let a single odd path be read as several disposable ones.
+expect BLOCK $'rm -rf "node_modules\nnode_modules"'
+expect BLOCK $'rm -rf ".venv\n.venv"'
+expect BLOCK $'rm -rf "/tmp/a\n/tmp/b"'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
