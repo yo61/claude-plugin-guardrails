@@ -86,6 +86,62 @@ readonly DISPOSABLE_ABS='^(/private)?/tmp(/|$)|^/var/folders(/|$)'
 
 readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 
+# A quote-aware tokeniser for ONE command segment, one token per output line.
+#
+# The first character of each line is the verdict on QUOTING -- `q` if any part
+# of the token was quoted or backslash-escaped, `u` if it was a bare word --
+# and the rest of the line is the token with its quoting resolved away.
+#
+# Both halves are needed, which is why neither `xargs` nor shell word-splitting
+# can do this job. Word-splitting sees quotes far too late: it splits on spaces
+# first, so `"/Users/me/My Project/node_modules"` arrived as two fragments and
+# the exemption it should have granted failed. `xargs` splits correctly but is
+# LOSSY -- it resolves quoting and then discards the fact that quoting happened,
+# and that discarded bit is the entire difference between a redirection and a
+# filename that merely starts with `>`. Dropping it deleted a real file named
+# `>important-project`, because the guard skipped it as a redirect operand.
+#
+# Deliberately NOT `eval` or `set --`: the input is a command this hook is
+# refusing to trust. Parsing it must never execute it.
+#
+# An unterminated quote emits what was accumulated instead of failing. The
+# shell would reject such a command outright, and a mangled token is not
+# disposable, so the caller blocks -- the safe direction.
+readonly TOKENISE='
+BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+{
+  tok = ""; started = 0; quoted = 0; n = length($0)
+  for (i = 1; i <= n; i++) {
+    c = substr($0, i, 1)
+    if (c == BS) {
+      if (++i <= n) { tok = tok substr($0, i, 1); started = 1; quoted = 1 }
+      continue
+    }
+    if (c == SQ) {
+      started = 1; quoted = 1
+      while (++i <= n) { c = substr($0, i, 1); if (c == SQ) break; tok = tok c }
+      continue
+    }
+    if (c == DQ) {
+      started = 1; quoted = 1
+      while (++i <= n) {
+        c = substr($0, i, 1)
+        if (c == BS && i < n) { tok = tok substr($0, ++i, 1); continue }
+        if (c == DQ) break
+        tok = tok c
+      }
+      continue
+    }
+    if (c == " " || c == "\t") {
+      if (started) { print (quoted ? "q" : "u") tok }
+      tok = ""; started = 0; quoted = 0
+      continue
+    }
+    tok = tok c; started = 1
+  }
+  if (started) { print (quoted ? "q" : "u") tok }
+}'
+
 # The paths EVERY `rm` in the command would delete, one per line, flags dropped.
 #
 # Every invocation, not one: the previous version used a single sed whose
@@ -97,7 +153,7 @@ readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 #
 # Splitting on separators first means each invocation is considered on its own.
 rm_targets() {
-  local seg tok skip_next end_of_opts seen_operand
+  local seg line tok quoted skip_next end_of_opts seen_operand
   # `set -f` for the whole scan: the word list below is deliberately unquoted so
   # the shell splits it, but without noglob it would also PATHNAME-EXPAND. A
   # target containing `*` would then be replaced by whatever happens to exist in
@@ -119,7 +175,11 @@ rm_targets() {
     skip_next=0
     end_of_opts=0
     seen_operand=0
-    for tok in ${seg#rm }; do
+    # Tokenise quote-aware (see TOKENISE): `q`/`u` prefix, then the token.
+    while IFS= read -r line; do
+      quoted=${line:0:1}
+      tok=${line:1}
+
       # FIRST, unconditionally: consume the file belonging to a preceding bare
       # redirect operator. This must precede the quote branch -- `> "file"` is a
       # perfectly ordinary redirection, and handling quotes first both emitted
@@ -139,37 +199,21 @@ rm_targets() {
         end_of_opts=1
         continue
       fi
-      tok=${tok%)} # a trailing `)` from a subshell
+      [[ $quoted == u ]] && tok=${tok%)} # a trailing `)` from a subshell
 
-      # QUOTING DECIDES CLASSIFICATION. A shell treats `>` as a redirection and
-      # a leading `-` as an option ONLY when the token is unquoted; quoting
-      # makes it a literal path. Classifying after stripping inverted that and
-      # silently dropped quoted targets from the list.
-      local quoted=0
-      case $tok in
-        \"*\" | \'*\')
-          quoted=1
-          tok=${tok:1:${#tok}-2}
-          ;;
-        *) ;; # unquoted: fall through to the classification checks below
-      esac
-      if [[ $quoted -eq 1 ]]; then
-        if [[ -n $tok ]]; then
-          seen_operand=1
-          printf '%s\n' "$tok"
-        fi
-        continue
-      fi
-      # Redirections are not paths. Without this, `rm -rf .venv 2>/dev/null`
+      # Redirections are not paths -- but ONLY when the shell would read them
+      # as redirections, which is why every branch below is gated on the token
+      # having been unquoted. `> log` redirects; `"> log"` is a file named
+      # `> log`, and treating the two alike deleted the file. Without this, `rm -rf .venv 2>/dev/null`
       # yielded `/dev/null` as a target, no disposable match, and the guard told
       # the caller to `trash /dev/null` -- a false block on one of the commonest
       # idioms there is. A bare operator takes the NEXT token as its file; a
       # joined form (`2>/dev/null`, `>>log`) carries its own.
-      if [[ $tok =~ ^[0-9]*(\>\>|\>|\<)$ ]]; then
+      if [[ $quoted == u && $tok =~ ^[0-9]*(\>\>|\>|\<)$ ]]; then
         skip_next=1
         continue
       fi
-      [[ $tok =~ ^[0-9]*(\>|\<) ]] && continue
+      [[ $quoted == u && $tok =~ ^[0-9]*(\>|\<) ]] && continue
       # A leading `-` is an OPTION only while rm is still scanning options.
       # BSD rm (macOS -- this hook's actual deployment target) does not permute:
       # once a filename has been seen, a later `-`-prefixed argument is a
@@ -183,7 +227,7 @@ rm_targets() {
         seen_operand=1
         printf '%s\n' "$tok"
       fi
-    done
+    done < <(printf '%s\n' "${seg#rm }" | awk "$TOKENISE")
   done < <(tr ';|&' '\n' <<< "$cmd")
   set +f
 }

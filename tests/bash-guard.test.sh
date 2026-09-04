@@ -173,6 +173,26 @@ expect ALLOW 'rm -rf "/tmp/scratch"'
 expect BLOCK 'rm -rf "~/important-project"'
 expect BLOCK "rm -rf '~/important-project'"
 expect BLOCK 'rm -rf "~/node_modules-of-my-2019-hackathon"'
+# A quoted path CONTAINING A SPACE is one token, not several. Splitting it on
+# whitespace before resolving quotes left fragments carrying stray quote
+# characters, so a perfectly ordinary disposable tree under a directory with a
+# space in its name was denied -- a false block on a real cleanup.
+expect ALLOW 'rm -rf "/Users/robin/My Project/node_modules"'
+expect ALLOW "rm -rf '/Users/robin/My Project/node_modules'"
+expect ALLOW 'rm -rf /Users/robin/My\ Project/node_modules'
+expect ALLOW 'rm -rf "My Project/node_modules" "/tmp/My Scratch"'
+# ...and the same tokenising must not hand out an exemption it should not.
+# These are the fragments the broken version produced, reunited: the protected
+# path is now ONE token and stays protected.
+expect BLOCK 'rm -rf "/Users/robin/My Project"'
+expect BLOCK 'rm -rf .venv "/Users/robin/My Project"'
+expect BLOCK "rm -rf .venv '/Users/robin/My Project'"
+expect BLOCK 'rm -rf /Users/robin/My\ Project'
+# No case here for an unterminated quote, deliberately. Swallowing one makes a
+# token LONGER, and DISPOSABLE is segment-anchored, so a longer token can only
+# match less often -- every plausible tokeniser blocks such a command. The
+# assertion could not fail, and a test that cannot fail reports coverage that
+# does not exist. The property is stated where it is relied on, in TOKENISE.
 # Quoting decides classification. A quoted token is a literal PATH, so it must
 # never be read as a redirection or a flag -- doing so dropped it from the
 # target list entirely and let a real deletion through beside a disposable one.
