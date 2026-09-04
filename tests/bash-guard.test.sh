@@ -150,6 +150,14 @@ expect BLOCK 'rm -rf ~/distribution'
 expect ALLOW 'rm -rf ./node_modules'
 expect ALLOW 'rm -rf ~/proj/node_modules'
 expect ALLOW 'rm -rf /private/tmp/x'
+expect ALLOW 'rm -rf /tmp'
+# OS scratch mounts are ABSOLUTE. A project's own tmp/ holds real work --
+# uploads, sessions, work in progress -- and must not inherit the exemption
+# meant for the machine's temp filesystem.
+expect BLOCK 'rm -rf ~/myproject/tmp'
+expect BLOCK 'rm -rf tmp'
+expect BLOCK 'rm -rf ./tmp'
+expect BLOCK 'rm -rf src/tmp/cache'
 expect ALLOW 'rm -rf /var/folders/ab/cd'
 expect ALLOW 'rm -rf target/debug'
 expect ALLOW 'rm -rf target/release'

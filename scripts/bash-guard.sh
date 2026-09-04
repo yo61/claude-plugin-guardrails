@@ -71,10 +71,20 @@ targets_real_bash() {
 # all treated as disposable and silently deleted with no Trash recovery. Each
 # name must now be a COMPLETE path segment: preceded by a `/` or the start of
 # the argument, and followed by a `/` or the end.
-# Entries may span several segments (`var/folders`, `target/debug`); the anchors
-# below still require whole-segment boundaries at each end.
-readonly DISPOSABLE_NAMES='(tmp|var/folders|scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|dist|build|target/debug|target/release|\.lastlight)'
-readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|$)"
+# Entries may span several segments (`target/debug`); the anchors below still
+# require whole-segment boundaries at each end.
+readonly DISPOSABLE_NAMES='(scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|dist|build|target/debug|target/release|\.lastlight)'
+
+# OS scratch mounts are ABSOLUTE, and must stay that way. `tmp` was originally
+# reachable only through the slash-wrapped literals `/tmp/`, `/private/tmp/`
+# and `/var/folders/` -- deliberately the machine's temp filesystems. Folding it
+# into the segment-anchored bucket above silently widened it to ANY directory
+# named `tmp` anywhere, so a project's own `tmp/` -- uploads, sessions, work in
+# progress -- became exempt from the trash rule and could be deleted with no
+# recovery. Anchored at the start of the path, these match only the real thing.
+readonly DISPOSABLE_ABS='^(/private)?/tmp(/|$)|^/var/folders(/|$)'
+
+readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 
 # The paths EVERY `rm` in the command would delete, one per line, flags dropped.
 #
