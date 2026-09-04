@@ -86,6 +86,7 @@ expect BLOCK 'rm -rf ./src/generated'
 expect ALLOW 'rm -rf /tmp/scratch-thing'
 expect ALLOW 'rm -rf node_modules && pnpm install'
 expect ALLOW 'rm -rf .venv'
+expect ALLOW 'rm -rf .lastlight/pr-review'
 expect ALLOW 'trash ~/important-project'
 expect ALLOW 'rm -f single-file.txt'
 

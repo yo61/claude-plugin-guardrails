@@ -66,7 +66,7 @@ targets_real_bash() {
 # Deleting a scratch, temp, or regenerable dependency tree. `trash` is the wrong
 # tool for these: slow on large trees, and it fills the Trash with rubbish.
 targets_disposable_path() {
-  matches '(/tmp/|/private/tmp/|/var/folders/|scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|/dist/|/build/|target/debug|target/release)'
+  matches '(/tmp/|/private/tmp/|/var/folders/|scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|/dist/|/build/|target/debug|target/release|\.lastlight)'
 }
 
 check_tool_choice() {
