@@ -67,14 +67,29 @@ targets_real_bash() {
 # slow on large trees, and it fills the Trash with rubbish.
 readonly DISPOSABLE='(/tmp/|/private/tmp/|/var/folders/|scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|/dist/|/build/|target/debug|target/release|\.lastlight)'
 
-# The paths an `rm` would delete, one per line, with flags dropped.
+# The paths EVERY `rm` in the command would delete, one per line, flags dropped.
+#
+# Every invocation, not one: the previous version used a single sed whose
+# leading `.*` is greedy, so it bound to the LAST `rm` in a chained command.
+# `rm -rf ~/important-project; rm -rf .venv` reported only `.venv`, the
+# exemption saw an all-disposable target list, and the protected path was
+# deleted with no Trash recovery -- the same hole this function exists to
+# close, reached through a second invocation instead of a second argument.
+#
+# Splitting on separators first means each invocation is considered on its own.
 rm_targets() {
-  local args tok
-  args=$(sed -E -n 's/.*(^|[;|&(])[[:space:]]*rm[[:space:]]+([^;|&]*).*/\2/p' <<< "$cmd" | head -1)
-  for tok in $args; do
-    [[ $tok == -* ]] && continue
-    printf '%s\n' "$tok"
-  done
+  local seg tok
+  while IFS= read -r seg; do
+    seg=${seg#"${seg%%[![:space:]]*}"} # ltrim
+    seg=${seg#(}                       # a leading `(` from a subshell
+    seg=${seg#"${seg%%[![:space:]]*}"}
+    [[ $seg == rm[[:space:]]* ]] || continue
+    for tok in ${seg#rm }; do
+      [[ $tok == -* ]] && continue
+      tok=${tok%)} # a trailing `)` from a subshell
+      [[ -n $tok ]] && printf '%s\n' "$tok"
+    done
+  done < <(tr ';|&' '\n' <<< "$cmd")
 }
 
 # True only when EVERY target is disposable.

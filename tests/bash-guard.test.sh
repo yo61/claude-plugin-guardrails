@@ -95,6 +95,15 @@ expect BLOCK 'rm -rf .lastlight ~/important-project'
 expect BLOCK 'rm -rf node_modules ~/important-project'
 expect BLOCK 'rm -rf /tmp/scratch ~/important-project'
 expect BLOCK 'rm -rf .venv ~/src/realwork'
+# ...nor may a LATER disposable rm exempt an earlier protected one. The target
+# extraction must see every invocation: a greedy match bound to the last `rm`
+# only, so the first one's targets were never examined.
+expect BLOCK 'rm -rf ~/important-project; rm -rf .venv'
+expect BLOCK 'rm -rf ~/important-project && rm -rf node_modules'
+expect BLOCK 'rm -rf ~/important-project | tee log; rm -rf /tmp/x'
+expect BLOCK '(cd /tmp && rm -rf ~/important-project); rm -rf .venv'
+expect ALLOW 'rm -rf node_modules; rm -rf .venv'
+expect ALLOW 'rm -rf node_modules && rm -rf /tmp/scratch'
 expect ALLOW 'trash ~/important-project'
 expect ALLOW 'rm -f single-file.txt'
 
