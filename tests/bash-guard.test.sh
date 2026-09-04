@@ -165,6 +165,13 @@ expect ALLOW 'rm -rf "/tmp/scratch"'
 expect BLOCK 'rm -rf "~/important-project"'
 expect BLOCK "rm -rf '~/important-project'"
 expect BLOCK 'rm -rf "~/node_modules-of-my-2019-hackathon"'
+# Quoting decides classification. A quoted token is a literal PATH, so it must
+# never be read as a redirection or a flag -- doing so dropped it from the
+# target list entirely and let a real deletion through beside a disposable one.
+expect BLOCK 'rm -rf .venv ">important-project"'
+expect BLOCK 'rm -rf .venv "-importantfile"'
+expect BLOCK 'rm -rf .venv ">" important-project'
+expect BLOCK "rm -rf .venv '-importantfile'"
 # A wildcard must be read as TEXT, never expanded against the guard's own cwd:
 # the guard's process never follows a `cd` from the command it is judging.
 expect BLOCK 'rm -rf ~/projects/*'

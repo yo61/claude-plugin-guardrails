@@ -120,13 +120,28 @@ rm_targets() {
         continue
       fi
       tok=${tok%)} # a trailing `)` from a subshell
-      # Strip surrounding quotes before matching. The segment anchors below
-      # need the path to start at the argument boundary, so `"node_modules"`
-      # matched nothing and a routine cleanup was denied. Stripping only makes
-      # the matcher see MORE paths as disposable, never fewer, so it cannot
-      # turn quoting into an escape: `"~/important-project"` still denies.
-      tok=${tok#[\"\']}
-      tok=${tok%[\"\']}
+
+      # QUOTING DECIDES CLASSIFICATION, so it is tested before anything else.
+      # A real shell treats `>` as a redirection and a leading `-` as an option
+      # ONLY when the token is unquoted; quoting makes it a literal path. An
+      # earlier version stripped quotes first and then classified, which
+      # inverted that: `">important-project"` was read as a redirection and
+      # `"-importantfile"` as a flag, so both were silently DROPPED from the
+      # target list. The remaining targets were disposable, the exemption
+      # applied, and a real path was deleted with no Trash recovery. A quoted
+      # `">"` was worse still -- it consumed the following argument too.
+      local quoted=0
+      case $tok in
+        \"*\" | \'*\')
+          quoted=1
+          tok=${tok:1:${#tok}-2}
+          ;;
+        *) ;; # unquoted: fall through to the classification checks below
+      esac
+      if [[ $quoted -eq 1 ]]; then
+        [[ -n $tok ]] && printf '%s\n' "$tok"
+        continue
+      fi
       # Redirections are not paths. Without this, `rm -rf .venv 2>/dev/null`
       # yielded `/dev/null` as a target, no disposable match, and the guard told
       # the caller to `trash /dev/null` -- a false block on one of the commonest
