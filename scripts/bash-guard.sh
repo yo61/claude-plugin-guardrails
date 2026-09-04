@@ -120,6 +120,13 @@ rm_targets() {
         continue
       fi
       tok=${tok%)} # a trailing `)` from a subshell
+      # Strip surrounding quotes before matching. The segment anchors below
+      # need the path to start at the argument boundary, so `"node_modules"`
+      # matched nothing and a routine cleanup was denied. Stripping only makes
+      # the matcher see MORE paths as disposable, never fewer, so it cannot
+      # turn quoting into an escape: `"~/important-project"` still denies.
+      tok=${tok#[\"\']}
+      tok=${tok%[\"\']}
       # Redirections are not paths. Without this, `rm -rf .venv 2>/dev/null`
       # yielded `/dev/null` as a target, no disposable match, and the guard told
       # the caller to `trash /dev/null` -- a false block on one of the commonest

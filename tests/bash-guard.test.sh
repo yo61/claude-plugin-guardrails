@@ -155,6 +155,16 @@ expect ALLOW 'rm -rf target/debug'
 expect ALLOW 'rm -rf target/release'
 expect ALLOW 'rm -rf dist'
 expect ALLOW 'rm -rf __pycache__'
+# Quoting a disposable path must not turn a routine cleanup into a denial --
+# the allow-side is what keeps the guard tolerable.
+expect ALLOW 'rm -rf "node_modules"'
+expect ALLOW "rm -rf 'node_modules'"
+expect ALLOW 'rm -rf ".lastlight/pr-review"'
+expect ALLOW 'rm -rf "/tmp/scratch"'
+# ...and quoting must not become an escape in the other direction.
+expect BLOCK 'rm -rf "~/important-project"'
+expect BLOCK "rm -rf '~/important-project'"
+expect BLOCK 'rm -rf "~/node_modules-of-my-2019-hackathon"'
 # A wildcard must be read as TEXT, never expanded against the guard's own cwd:
 # the guard's process never follows a `cd` from the command it is judging.
 expect BLOCK 'rm -rf ~/projects/*'
