@@ -107,10 +107,21 @@ readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 
 # Every spelling of a redirect operator. Not just `>`/`<`: `&>` and `&>>` send
 # both streams, `>&`/`<&` duplicate a descriptor, and any of them may carry a
-# leading fd number. Recognising only the plain forms made `&>/dev/null` look
+# leading fd number, and `>|` overrides noclobber. Missing `>|` cost a false
+# block: its SPACED form matched the whole-token test only as far as `>`, so it
+# fell through to the PREFIX test, which continues WITHOUT consuming the
+# operator's file -- `log` was collected as an rm target and
+# `rm -rf node_modules >| log` was denied as a non-disposable deletion.
+#
+# Order within the alternation does not matter. POSIX ERE matches
+# leftmost-LONGEST rather than first-alternative, so `>|` wins over `>` wherever
+# it sits; a mutation reordering them changes nothing, which is why no test
+# asserts the order.
+#
+# Recognising only the plain forms made `&>/dev/null` look
 # like a PATH, so `rm -rf node_modules &>/dev/null` -- an ordinary cleanup --
 # would have been denied as a non-disposable target.
-readonly REDIR='([0-9]*(>>|>|<)|&>>|&>|[0-9]*(>&|<&))'
+readonly REDIR='([0-9]*(>>|>\||>|<)|&>>|&>|[0-9]*(>&|<&))'
 
 # Split a command into its separate invocations, NUL-separated.
 #

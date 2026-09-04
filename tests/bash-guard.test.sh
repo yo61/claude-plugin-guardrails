@@ -378,5 +378,13 @@ expect BLOCK $'rm -rf "node_modules\nnode_modules"'
 expect BLOCK $'rm -rf ".venv\n.venv"'
 expect BLOCK $'rm -rf "/tmp/a\n/tmp/b"'
 
+# `>|` overrides noclobber and is a redirection in both its forms. Spelled
+# after the plain `>` alternative it never matched whole, so the SPACED form
+# fell through to the prefix test -- which continues WITHOUT consuming the
+# operator's file, collecting it as a target and denying a clean cleanup.
+expect ALLOW 'rm -rf node_modules >| log'
+expect ALLOW 'rm -rf .venv >| /dev/null'
+expect BLOCK 'rm -rf node_modules >| log ~/important-project'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
