@@ -116,6 +116,15 @@ expect ALLOW 'rm -rf node_modules > /dev/null'
 expect ALLOW 'rm -rf node_modules >> log 2>&1'
 expect ALLOW 'rm -rf /tmp/scratch 2> err.log'
 expect BLOCK 'rm -rf ~/important-project 2>/dev/null'
+# A non-recursive rm must not poison the check for an rm -rf beside it. Each of
+# these is allowed alone; the pair was denied because README.md was collected as
+# a target of a command the rule does not even govern.
+expect ALLOW 'rm -f README.md'
+expect ALLOW 'rm -f README.md; rm -rf node_modules'
+expect ALLOW 'rm file.txt && rm -rf .venv'
+# ...but a recursive one still counts, wherever it sits in the chain.
+expect BLOCK 'rm -f README.md; rm -rf ~/important-project'
+expect BLOCK 'rm -rf ~/important-project; rm -f scratch.txt'
 # A wildcard must be read as TEXT, never expanded against the guard's own cwd:
 # the guard's process never follows a `cd` from the command it is judging.
 expect BLOCK 'rm -rf ~/projects/*'

@@ -91,6 +91,12 @@ rm_targets() {
     seg=${seg#(}                       # a leading `(` from a subshell
     seg=${seg#"${seg%%[![:space:]]*}"}
     [[ $seg == rm[[:space:]]* ]] || continue
+    # Only invocations the RULE governs, i.e. recursive-force ones. Collecting
+    # from every `rm` let a plain file removal poison the check for a legitimate
+    # cleanup beside it: `rm -f README.md` and `rm -rf node_modules` are each
+    # allowed alone, but together the non-disposable README.md made the pair
+    # deny -- a false block built out of two permitted commands.
+    [[ $seg =~ (^|[[:space:]])-[a-zA-Z]*(rf|fr|Rf|fR)[a-zA-Z]*([[:space:]]|$) ]] || continue
     skip_next=0
     for tok in ${seg#rm }; do
       tok=${tok%)} # a trailing `)` from a subshell
