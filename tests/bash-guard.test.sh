@@ -297,5 +297,18 @@ expect ASK 'git merge --ff-only upstream/main && git push origin main'
 expect ALLOW 'git push -u origin feat/import-remaining-mu-plugins'
 expect ALLOW 'git push origin main-is-not-the-target-here'
 
+# A bash-only variable name is evidence the subject is bash source, so the
+# zsh rules step aside. Without this the guard blocked its own author for
+# writing ${BASH_SOURCE[0]} into a script, and advised an index that is equally
+# empty in zsh -- the variable does not exist there at all.
+expect ALLOW 'printf %s "${BASH_SOURCE[0]}"'
+expect ALLOW 'cat >> f.sh <<EOF\nif [[ ${BASH_SOURCE[0]} == \$0 ]]; then main; fi\nEOF'
+expect ALLOW 'grep -n BASH_SOURCE script.sh'
+# BASH_REMATCH is NOT evidence of bash: zsh fills $match instead, so it stays a
+# mistake here and keeps its own rule.
+# ...but a real zsh zero-index mistake still blocks.
+expect BLOCK 'echo "${arr[0]}"'
+expect BLOCK 'printf %s "${parts[0]}"'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
