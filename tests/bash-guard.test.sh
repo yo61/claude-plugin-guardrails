@@ -133,6 +133,12 @@ expect BLOCK 'rm -rf -- -importantfile; rm -rf node_modules'
 expect BLOCK 'rm -rf -- ~/important-project'
 expect ALLOW 'rm -rf -- node_modules'
 expect ALLOW 'rm -rf -- node_modules .venv'
+# A traversing path escapes the disposable tree it appears to name, and cannot
+# be judged by substring match at all. Not exempted, on principle.
+expect BLOCK 'rm -rf .lastlight/../important-project'
+expect BLOCK 'rm -rf node_modules/../../src'
+expect BLOCK 'rm -rf /tmp/../Users/robin/code'
+expect ALLOW 'rm -rf node_modules/.cache'
 # A wildcard must be read as TEXT, never expanded against the guard's own cwd:
 # the guard's process never follows a `cd` from the command it is judging.
 expect BLOCK 'rm -rf ~/projects/*'

@@ -148,6 +148,13 @@ all_rm_targets_disposable() {
   while IFS= read -r target; do
     [[ -n $target ]] || continue
     found=1
+    # A traversing path cannot be judged by substring match: DISPOSABLE matched
+    # `.lastlight/../important-project`, which deletes the project NEXT TO the
+    # scratch dir, not the scratch dir. Rather than normalise -- which would
+    # mean resolving against a cwd this process does not share with the command
+    # -- refuse to exempt anything containing `..`. Fail-safe: an unjudgeable
+    # target is a protected one.
+    [[ $target == *..* ]] && return 1
     grep -Eq "$DISPOSABLE" <<< "$target" || return 1
   done < <(rm_targets)
   [[ $found -eq 1 ]]
