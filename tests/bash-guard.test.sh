@@ -353,5 +353,24 @@ expect ALLOW 'rm -rf node_modules && rm -rf .venv'
 expect BLOCK 'grep -n BASH_SOURCE script.sh; echo "${arr[0]}"'
 expect BLOCK 'echo BASH_VERSINFO && printf %s "${parts[0]}"'
 
+# A COMMAND SPANNING LINES is still one command. awk splits its input on
+# newlines by default, so a record ended before the quote tracking could see
+# it: an ordinary wrapped `rm` lost its second line, which no longer began with
+# `rm ` and was dropped unexamined. The exemption then saw only the disposable
+# target and the protected one was deleted.
+expect BLOCK $'rm -rf .venv \\\n  ~/important-project'
+expect BLOCK $'rm -rf node_modules \\\n  \\\n  ~/important-project'
+# A backslash-newline is a continuation and joins the lines, so this is ONE
+# invocation with two disposable targets, not two invocations.
+expect ALLOW $'rm -rf node_modules \\\n  .venv'
+# A bare newline ends the invocation, exactly as a `;` would.
+expect BLOCK $'rm -rf .venv\nrm -rf ~/important-project'
+expect ALLOW $'rm -rf .venv\nrm -rf node_modules'
+# A newline INSIDE quotes belongs to the filename. Splitting the record there
+# left an unterminated quote whose fragment tokenised to a bare disposable
+# name -- the same bypass as the quoted `;`.
+expect BLOCK $'rm -rf ".venv\n~/important-project"'
+expect BLOCK $'rm -rf \'.venv\n~/important-project\''
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

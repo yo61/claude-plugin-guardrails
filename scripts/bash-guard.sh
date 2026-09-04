@@ -112,7 +112,20 @@ readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 # would have been denied as a non-disposable target.
 readonly REDIR='([0-9]*(>>|>|<)|&>>|&>|[0-9]*(>&|<&))'
 
-# Split a command into its separate invocations, one per line.
+# Split a command into its separate invocations, NUL-separated.
+#
+# One record per invocation, not per line, and the whole command is read before
+# any of it is scanned. `awk` splits input on newlines by default, which ended
+# a record before the quote tracking could see it -- so an ordinary wrapped
+# command, `rm -rf .venv \` + newline + `  ~/important-project`, lost its
+# second line entirely. That line did not begin with `rm `, so it was dropped
+# unexamined and the exemption saw only `.venv`: the project was deleted. The
+# same truncation applied to a newline inside a quoted argument.
+#
+# A newline is handled the way a shell handles it: a separator when bare,
+# nothing at all after a backslash (a line continuation), and an ordinary
+# character inside quotes. That last case is why the output is NUL-separated --
+# a newline that belongs to an argument must not end the record carrying it.
 #
 # `tr ';|&' '\n'` did this until a review showed it splitting INSIDE a quoted
 # argument. `rm -rf "node_modules;important-project"` names one directory whose
@@ -129,49 +142,44 @@ readonly REDIR='([0-9]*(>>|>|<)|&>>|&>|[0-9]*(>&|<&))'
 # opposite things from a quote -- one copies it through, the other strips it.
 readonly SEGMENT='
 BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
-{
-  out = ""; n = length($0)
+{ buf = buf (NR > 1 ? "\n" : "") $0 }
+END {
+  n = length(buf); seg = ""
   for (i = 1; i <= n; i++) {
-    c = substr($0, i, 1)
+    c = substr(buf, i, 1)
     if (c == BS) {
-      out = out c
-      if (++i <= n) { out = out substr($0, i, 1) }
+      if (i < n && substr(buf, i + 1, 1) == "\n") { i++; continue }
+      seg = seg c
+      if (++i <= n) { seg = seg substr(buf, i, 1) }
       continue
     }
     if (c == SQ) {
-      out = out c
-      while (++i <= n) { c = substr($0, i, 1); out = out c; if (c == SQ) break }
+      seg = seg c
+      while (++i <= n) { c = substr(buf, i, 1); seg = seg c; if (c == SQ) break }
       continue
     }
     if (c == DQ) {
-      out = out c
+      seg = seg c
       while (++i <= n) {
-        c = substr($0, i, 1)
-        if (c == BS && i < n) { out = out c substr($0, ++i, 1); continue }
-        out = out c
+        c = substr(buf, i, 1)
+        if (c == BS && i < n) { seg = seg c substr(buf, ++i, 1); continue }
+        seg = seg c
         if (c == DQ) break
       }
       continue
     }
-    # `&` and `|` are separators only OUTSIDE a redirect operator. `2>&1`,
-    # `&>/dev/null`, `<&3`, `1>&2` and `>|file` all contain one, and splitting
-    # there severed the command: the protected target landed in a fragment no
-    # longer beginning with `rm `, which was dropped unexamined rather than
-    # reaching the unknown-target fail-safe. `rm -rf .venv 2>&1 ~/project`
-    # was allowed, deleting the project -- the same hole as the quoted
-    # separator, through a different split.
     if (c == "&" || c == "|") {
-      prev = substr(out, length(out), 1)
-      nxt = (i < n) ? substr($0, i + 1, 1) : ""
-      if (prev == ">" || prev == "<") { out = out c; continue }
-      if (c == "&" && nxt == ">") { out = out c; continue }
-      out = out "\n"
+      prev = substr(seg, length(seg), 1)
+      nxt = (i < n) ? substr(buf, i + 1, 1) : ""
+      if (prev == ">" || prev == "<") { seg = seg c; continue }
+      if (c == "&" && nxt == ">") { seg = seg c; continue }
+      printf "%s%c", seg, 0; seg = ""
       continue
     }
-    if (c == ";") { out = out "\n"; continue }
-    out = out c
+    if (c == ";" || c == "\n") { printf "%s%c", seg, 0; seg = ""; continue }
+    seg = seg c
   }
-  print out
+  printf "%s%c", seg, 0
 }'
 
 # A quote-aware tokeniser for ONE command segment, one token per output line.
@@ -197,37 +205,38 @@ BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
 # disposable, so the caller blocks -- the safe direction.
 readonly TOKENISE='
 BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
-{
-  tok = ""; started = 0; quoted = 0; n = length($0)
+{ buf = buf (NR > 1 ? "\n" : "") $0 }
+END {
+  n = length(buf); tok = ""; started = 0; quoted = 0
   for (i = 1; i <= n; i++) {
-    c = substr($0, i, 1)
+    c = substr(buf, i, 1)
     if (c == BS) {
-      if (++i <= n) { tok = tok substr($0, i, 1); started = 1; quoted = 1 }
+      if (++i <= n) { tok = tok substr(buf, i, 1); started = 1; quoted = 1 }
       continue
     }
     if (c == SQ) {
       started = 1; quoted = 1
-      while (++i <= n) { c = substr($0, i, 1); if (c == SQ) break; tok = tok c }
+      while (++i <= n) { c = substr(buf, i, 1); if (c == SQ) break; tok = tok c }
       continue
     }
     if (c == DQ) {
       started = 1; quoted = 1
       while (++i <= n) {
-        c = substr($0, i, 1)
-        if (c == BS && i < n) { tok = tok substr($0, ++i, 1); continue }
+        c = substr(buf, i, 1)
+        if (c == BS && i < n) { tok = tok substr(buf, ++i, 1); continue }
         if (c == DQ) break
         tok = tok c
       }
       continue
     }
-    if (c == " " || c == "\t") {
-      if (started) { print (quoted ? "q" : "u") tok }
+    if (c == " " || c == "\t" || c == "\n") {
+      if (started) { printf "%s%s%c", (quoted ? "q" : "u"), tok, 0 }
       tok = ""; started = 0; quoted = 0
       continue
     }
     tok = tok c; started = 1
   }
-  if (started) { print (quoted ? "q" : "u") tok }
+  if (started) { printf "%s%s%c", (quoted ? "q" : "u"), tok, 0 }
 }'
 
 # The paths EVERY `rm` in the command would delete, one per line, flags dropped.
@@ -250,7 +259,7 @@ rm_targets() {
   # -- so `cd /tmp && rm -rf *` was judged against the repo root. Text parsing
   # must not touch the filesystem.
   set -f
-  while IFS= read -r seg; do
+  while IFS= read -r -d '' seg; do
     seg=${seg#"${seg%%[![:space:]]*}"} # ltrim
     seg=${seg#(}                       # a leading `(` from a subshell
     seg=${seg#"${seg%%[![:space:]]*}"}
@@ -265,7 +274,7 @@ rm_targets() {
     end_of_opts=0
     seen_operand=0
     # Tokenise quote-aware (see TOKENISE): `q`/`u` prefix, then the token.
-    while IFS= read -r line; do
+    while IFS= read -r -d '' line; do
       quoted=${line:0:1}
       tok=${line:1}
 
@@ -316,8 +325,8 @@ rm_targets() {
         seen_operand=1
         printf '%s\n' "$tok"
       fi
-    done < <(printf '%s\n' "${seg#rm }" | awk "$TOKENISE")
-  done < <(printf '%s\n' "$cmd" | awk "$SEGMENT")
+    done < <(printf '%s' "${seg#rm }" | awk "$TOKENISE")
+  done < <(printf '%s' "$cmd" | awk "$SEGMENT")
   set +f
 }
 
