@@ -139,6 +139,22 @@ expect BLOCK 'rm -rf .lastlight/../important-project'
 expect BLOCK 'rm -rf node_modules/../../src'
 expect BLOCK 'rm -rf /tmp/../Users/robin/code'
 expect ALLOW 'rm -rf node_modules/.cache'
+# Keywords must be WHOLE path segments. Unanchored, a real directory whose name
+# merely contained one was exempted and silently deleted.
+expect BLOCK 'rm -rf ~/node_modules-of-my-2019-hackathon'
+expect BLOCK 'rm -rf ~/my-scratchpad-of-real-work'
+expect BLOCK 'rm -rf project.venv-backup-DO-NOT-DELETE'
+expect BLOCK 'rm -rf ~/builder'
+expect BLOCK 'rm -rf ~/distribution'
+# ...and the genuine ones, including multi-segment entries, still pass.
+expect ALLOW 'rm -rf ./node_modules'
+expect ALLOW 'rm -rf ~/proj/node_modules'
+expect ALLOW 'rm -rf /private/tmp/x'
+expect ALLOW 'rm -rf /var/folders/ab/cd'
+expect ALLOW 'rm -rf target/debug'
+expect ALLOW 'rm -rf target/release'
+expect ALLOW 'rm -rf dist'
+expect ALLOW 'rm -rf __pycache__'
 # A wildcard must be read as TEXT, never expanded against the guard's own cwd:
 # the guard's process never follows a `cd` from the command it is judging.
 expect BLOCK 'rm -rf ~/projects/*'

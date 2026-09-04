@@ -65,7 +65,16 @@ targets_real_bash() {
 
 # Scratch, temp and regenerable trees. `trash` is the wrong tool for these:
 # slow on large trees, and it fills the Trash with rubbish.
-readonly DISPOSABLE='(/tmp/|/private/tmp/|/var/folders/|scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|/dist/|/build/|target/debug|target/release|\.lastlight)'
+# SEGMENT-ANCHORED, not substring. Bare keywords matched anywhere in the
+# argument, so `~/node_modules-of-my-2019-hackathon`,
+# `~/my-scratchpad-of-real-work` and `project.venv-backup-DO-NOT-DELETE` were
+# all treated as disposable and silently deleted with no Trash recovery. Each
+# name must now be a COMPLETE path segment: preceded by a `/` or the start of
+# the argument, and followed by a `/` or the end.
+# Entries may span several segments (`var/folders`, `target/debug`); the anchors
+# below still require whole-segment boundaries at each end.
+readonly DISPOSABLE_NAMES='(tmp|var/folders|scratchpad|node_modules|\.venv|\.pytest_cache|__pycache__|\.next|dist|build|target/debug|target/release|\.lastlight)'
+readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|$)"
 
 # The paths EVERY `rm` in the command would delete, one per line, flags dropped.
 #
