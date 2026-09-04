@@ -328,6 +328,25 @@ expect BLOCK 'rm -rf node_modules\;important-project'
 expect ALLOW 'rm -rf node_modules; rm -rf .venv'
 expect BLOCK 'rm -rf node_modules; rm -rf ~/important-project'
 
+# A REDIRECT OPERATOR is not a command separator, however much `&` it contains.
+# Splitting there severed the command and the protected target vanished with
+# the fragment, instead of reaching the unknown-target fail-safe.
+expect BLOCK 'rm -rf .venv 2>&1 ~/important-project'
+expect BLOCK 'rm -rf .venv &>/dev/null ~/important-project'
+expect BLOCK 'rm -rf .venv &>>log ~/important-project'
+expect BLOCK 'rm -rf .venv <&3 ~/important-project'
+expect BLOCK 'rm -rf .venv 1>&2 ~/important-project'
+expect BLOCK 'rm -rf node_modules >|clobber ~/important-project'
+# ...and those same operators must not be mistaken for paths, or an ordinary
+# cleanup gets denied as a non-disposable target.
+expect ALLOW 'rm -rf node_modules 2>&1'
+expect ALLOW 'rm -rf node_modules &>/dev/null'
+expect ALLOW 'rm -rf .venv 1>&2'
+expect ALLOW 'rm -rf .venv >& log'
+# A genuine `&&` still ends the invocation.
+expect BLOCK 'rm -rf node_modules && rm -rf ~/important-project'
+expect ALLOW 'rm -rf node_modules && rm -rf .venv'
+
 # A BASH_ name is evidence of bash only as a VARIABLE REFERENCE. Matching the
 # bare name anywhere let an incidental mention switch off every zsh rule for
 # the rest of the command, so a real mistake beside it went unreported.

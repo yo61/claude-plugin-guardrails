@@ -105,6 +105,13 @@ readonly DISPOSABLE_ABS='^(/private)?/tmp(/|$)|^/var/folders(/|$)'
 
 readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 
+# Every spelling of a redirect operator. Not just `>`/`<`: `&>` and `&>>` send
+# both streams, `>&`/`<&` duplicate a descriptor, and any of them may carry a
+# leading fd number. Recognising only the plain forms made `&>/dev/null` look
+# like a PATH, so `rm -rf node_modules &>/dev/null` -- an ordinary cleanup --
+# would have been denied as a non-disposable target.
+readonly REDIR='([0-9]*(>>|>|<)|&>>|&>|[0-9]*(>&|<&))'
+
 # Split a command into its separate invocations, one per line.
 #
 # `tr ';|&' '\n'` did this until a review showed it splitting INSIDE a quoted
@@ -146,7 +153,22 @@ BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
       }
       continue
     }
-    if (c == ";" || c == "|" || c == "&") { out = out "\n"; continue }
+    # `&` and `|` are separators only OUTSIDE a redirect operator. `2>&1`,
+    # `&>/dev/null`, `<&3`, `1>&2` and `>|file` all contain one, and splitting
+    # there severed the command: the protected target landed in a fragment no
+    # longer beginning with `rm `, which was dropped unexamined rather than
+    # reaching the unknown-target fail-safe. `rm -rf .venv 2>&1 ~/project`
+    # was allowed, deleting the project -- the same hole as the quoted
+    # separator, through a different split.
+    if (c == "&" || c == "|") {
+      prev = substr(out, length(out), 1)
+      nxt = (i < n) ? substr($0, i + 1, 1) : ""
+      if (prev == ">" || prev == "<") { out = out c; continue }
+      if (c == "&" && nxt == ">") { out = out c; continue }
+      out = out "\n"
+      continue
+    }
+    if (c == ";") { out = out "\n"; continue }
     out = out c
   }
   print out
@@ -276,11 +298,11 @@ rm_targets() {
       # the caller to `trash /dev/null` -- a false block on one of the commonest
       # idioms there is. A bare operator takes the NEXT token as its file; a
       # joined form (`2>/dev/null`, `>>log`) carries its own.
-      if [[ $quoted == u && $tok =~ ^[0-9]*(\>\>|\>|\<)$ ]]; then
+      if [[ $quoted == u && $tok =~ ^${REDIR}$ ]]; then
         skip_next=1
         continue
       fi
-      [[ $quoted == u && $tok =~ ^[0-9]*(\>|\<) ]] && continue
+      [[ $quoted == u && $tok =~ ^${REDIR} ]] && continue
       # A leading `-` is an OPTION only while rm is still scanning options.
       # BSD rm (macOS -- this hook's actual deployment target) does not permute:
       # once a filename has been seen, a later `-`-prefixed argument is a
