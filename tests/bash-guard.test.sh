@@ -104,6 +104,40 @@ expect BLOCK 'rm -rf ~/important-project | tee log; rm -rf /tmp/x'
 expect BLOCK '(cd /tmp && rm -rf ~/important-project); rm -rf .venv'
 expect ALLOW 'rm -rf node_modules; rm -rf .venv'
 expect ALLOW 'rm -rf node_modules && rm -rf /tmp/scratch'
+# Redirections are not paths. These were false-blocked, with the guard advising
+# `trash /dev/null` -- and suppressing errors on an rm is a very common idiom.
+expect ALLOW 'rm -rf .venv 2>/dev/null'
+expect ALLOW 'rm -rf node_modules > /dev/null'
+expect ALLOW 'rm -rf node_modules >> log 2>&1'
+expect ALLOW 'rm -rf /tmp/scratch 2> err.log'
+expect BLOCK 'rm -rf ~/important-project 2>/dev/null'
+# A wildcard must be read as TEXT, never expanded against the guard's own cwd:
+# the guard's process never follows a `cd` from the command it is judging.
+expect BLOCK 'rm -rf ~/projects/*'
+
+# The decisive glob case, and it needs its own cwd to mean anything.
+#
+# Running this from the repo root proves nothing: `*` would expand to
+# README.md, scripts/ ... none disposable, so the command blocks whether or not
+# the guard globs. Mutation-testing showed exactly that -- removing `set -f`
+# left the suite green. Run it instead from a directory whose ONLY entry is
+# `node_modules`: with globbing the target becomes a disposable path and the
+# command is wrongly allowed; without it, `*` stays literal and is refused.
+glob_cwd_case() {
+  local dir out got
+  dir=$(mktemp -d)
+  mkdir -p "$dir/node_modules"
+  out=$(cd "$dir" && jq -n '{tool_name:"Bash",tool_input:{command:"rm -rf *"}}' | "$GUARD")
+  [[ -z $out ]] && got=ALLOW || got=BLOCK
+  rm -rf "$dir"
+  if [[ $got == BLOCK ]]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    printf '  FAIL want=BLOCK got=ALLOW : rm -rf * globbed against the guard cwd\n'
+  fi
+}
+glob_cwd_case
 expect ALLOW 'trash ~/important-project'
 expect ALLOW 'rm -f single-file.txt'
 

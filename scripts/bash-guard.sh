@@ -78,18 +78,41 @@ readonly DISPOSABLE='(/tmp/|/private/tmp/|/var/folders/|scratchpad|node_modules|
 #
 # Splitting on separators first means each invocation is considered on its own.
 rm_targets() {
-  local seg tok
+  local seg tok skip_next
+  # `set -f` for the whole scan: the word list below is deliberately unquoted so
+  # the shell splits it, but without noglob it would also PATHNAME-EXPAND. A
+  # target containing `*` would then be replaced by whatever happens to exist in
+  # THIS process's cwd -- which never follows a `cd` earlier in the same command
+  # -- so `cd /tmp && rm -rf *` was judged against the repo root. Text parsing
+  # must not touch the filesystem.
+  set -f
   while IFS= read -r seg; do
     seg=${seg#"${seg%%[![:space:]]*}"} # ltrim
     seg=${seg#(}                       # a leading `(` from a subshell
     seg=${seg#"${seg%%[![:space:]]*}"}
     [[ $seg == rm[[:space:]]* ]] || continue
+    skip_next=0
     for tok in ${seg#rm }; do
-      [[ $tok == -* ]] && continue
       tok=${tok%)} # a trailing `)` from a subshell
+      # Redirections are not paths. Without this, `rm -rf .venv 2>/dev/null`
+      # yielded `/dev/null` as a target, no disposable match, and the guard told
+      # the caller to `trash /dev/null` -- a false block on one of the commonest
+      # idioms there is. A bare operator takes the NEXT token as its file; a
+      # joined form (`2>/dev/null`, `>>log`) carries its own.
+      if [[ $skip_next -eq 1 ]]; then
+        skip_next=0
+        continue
+      fi
+      if [[ $tok =~ ^[0-9]*(\>\>|\>|\<)$ ]]; then
+        skip_next=1
+        continue
+      fi
+      [[ $tok =~ ^[0-9]*(\>|\<) ]] && continue
+      [[ $tok == -* ]] && continue
       [[ -n $tok ]] && printf '%s\n' "$tok"
     done
   done < <(tr ';|&' '\n' <<< "$cmd")
+  set +f
 }
 
 # True only when EVERY target is disposable.
