@@ -45,15 +45,21 @@ matches() {
 }
 
 rule() {
-  if matches "$1"; then
-    denials+=("$2")
-  fi
+  matches "$1" || return 0
+  local d
+  for d in ${denials[@]+"${denials[@]}"}; do
+    [[ $d == "$2" ]] && return 0
+  done
+  denials+=("$2")
 }
 
 ask() {
-  if matches "$1"; then
-    prompts+=("$2")
-  fi
+  matches "$1" || return 0
+  local q
+  for q in ${prompts[@]+"${prompts[@]}"}; do
+    [[ $q == "$2" ]] && return 0
+  done
+  prompts+=("$2")
 }
 
 # A bash-only variable used AS a variable, with single-quoted literals removed
@@ -85,8 +91,30 @@ bash_variable_reference() {
 # of false positive that reliably gets reported.
 targets_real_bash() {
   matches '#!(/usr/bin/env[[:space:]]+bash|/bin/bash)' \
-    || matches "${BOUNDARY}bash[[:space:]]+(-[cs]|<)" \
-    || bash_variable_reference
+    || matches "${BOUNDARY}bash[[:space:]]+(-[cs]|<)"
+}
+
+# Run the rules that a bash-authoring context exempts, ONE CLAUSE AT A TIME.
+#
+# Scope, not just strength. Two earlier fixes narrowed what counts as evidence
+# -- a reference rather than a mention, unquoted rather than quoted -- and both
+# left it applying to the whole command. So a genuine `${BASH_SOURCE[0]}` in one
+# clause exempted every other clause beside it:
+# `echo "${BASH_SOURCE[0]}"; echo "${arr[0]}"` was allowed, and so were
+# `...; pip install requests` and `...; find . -name "*.py"`.
+#
+# A shebang or an explicit `bash -c` still exempts everything, and deliberately:
+# those are unmistakable statements about the whole text, and they are unlikely
+# to turn up beside an unrelated zsh statement. A bare variable reference is
+# incidental, so it speaks only for the clause it appears in.
+for_each_clause() {
+  local clause
+  while IFS= read -r -d '' clause; do
+    [[ -n ${clause//[[:space:]]/} ]] || continue
+    subject=$clause
+    bash_variable_reference && continue
+    "$@"
+  done < <(printf '%s' "$cmd" | awk "$SEGMENT")
 }
 
 # Scratch, temp and regenerable trees. `trash` is the wrong tool for these:
@@ -460,7 +488,11 @@ check_tool_choice() {
   if targets_real_bash; then
     return 0
   fi
+  for_each_clause tool_choice_clause_rules
+}
 
+# The half a bash-authoring clause is exempt from.
+tool_choice_clause_rules() {
   # -exec/-delete/-print0 are find idioms worth keeping; fd's -x/-X/-0 differ
   # enough that a blanket rewrite would be wrong.
   if ! matches '[[:space:]]-(exec|execdir|delete|print0|ok)([[:space:]]|$)'; then
@@ -487,7 +519,10 @@ check_zsh_portability() {
   if targets_real_bash; then
     return 0
   fi
+  for_each_clause zsh_portability_clause_rules
+}
 
+zsh_portability_clause_rules() {
   rule "${BOUNDARY}(mapfile|readarray)([[:space:]]|$)" \
     'The Bash tool runs zsh, where `mapfile`/`readarray` do not exist (command not found). Use `while IFS= read -r line; do ... done < file`, or run the script under `bash -c`.'
 

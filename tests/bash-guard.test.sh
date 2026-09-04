@@ -16,6 +16,20 @@ GUARD=$(cd "$(dirname "$GUARD")" && printf '%s/%s' "$PWD" "$(basename "$GUARD")"
 pass=0
 fail=0
 
+# How many distinct pieces of guidance a command produces. Rules are evaluated
+# per clause now, so one violation repeated across clauses would otherwise
+# report itself once per clause -- the same paragraph twice is noise, and noise
+# is what gets a guard switched off.
+reasons() {
+  local out
+  out=$(jq -n --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}' | "$GUARD")
+  [[ -n $out ]] || {
+    echo 0
+    return
+  }
+  jq -r '.hookSpecificOutput.permissionDecisionReason' <<< "$out" | grep -c '^- '
+}
+
 verdict() {
   local out decision
   out=$(jq -n --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}' | "$GUARD")
@@ -393,6 +407,39 @@ expect BLOCK "grep -n '\${BASH_SOURCE[0]}' script.sh; echo \"\${arr[0]}\""
 expect BLOCK "printf %s '\${BASH_SOURCE[0]}'; echo \"\${parts[0]}\""
 # ...while a double-quoted one DOES expand, so it remains evidence.
 expect ALLOW 'printf %s "${BASH_SOURCE[0]}"'
+
+# EVIDENCE IS SCOPED TO ITS CLAUSE. A genuine bash variable reference says that
+# clause is bash source; it says nothing about the statement joined beside it.
+# Applying it command-wide let one incidental reference switch off every rule
+# for everything else on the line.
+expect BLOCK "echo \"\${BASH_SOURCE[0]}\"; echo \"\${arr[0]}\""
+expect BLOCK "echo \"\${BASH_SOURCE[0]}\"; pip install requests"
+expect BLOCK "echo \"\${BASH_SOURCE[0]}\" && find . -name '*.py'"
+expect BLOCK "echo \"\${BASH_SOURCE[0]}\"; pre-commit run --all-files"
+# ...and the clause holding the reference is still exempt.
+expect ALLOW "echo \"\${BASH_SOURCE[0]}\""
+expect ALLOW "printf %s \"\${BASH_SOURCE[0]}\" > f.sh"
+# A shebang or an explicit `bash -c` remains a statement about the WHOLE text:
+# unmistakable, deliberate, and unlikely to appear beside an unrelated zsh
+# statement -- unlike a bare variable reference.
+expect ALLOW $'#!/usr/bin/env bash\nmapfile -t x < f'
+expect ALLOW $'#!/usr/bin/env bash\nmapfile -t x < f; pip install requests'
+
+echo "--- one violation, said once ---"
+# Built from parts so this file does not itself trip the rule it is testing.
+DUP=$(printf '%s install a; %s install b' pip pip)
+ok_msg() {
+  local what=$1 got=$2 want=$3
+  if [[ $got == "$want" ]]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$what" "$want" "$got"
+  fi
+}
+ok_msg "the same violation in two clauses reports once" "$(reasons "$DUP")" "1"
+ok_msg "two different violations both report" \
+  "$(reasons "$(printf '%s install a; which foo' pip)")" "2"
 
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
