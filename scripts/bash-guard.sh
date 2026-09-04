@@ -101,6 +101,53 @@ readonly DISPOSABLE_ABS='^(/private)?/tmp(/|$)|^/var/folders(/|$)'
 
 readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 
+# Split a command into its separate invocations, one per line.
+#
+# `tr ';|&' '\n'` did this until a review showed it splitting INSIDE a quoted
+# argument. `rm -rf "node_modules;important-project"` names one directory whose
+# name contains a semicolon; torn in two, the tail fragment no longer starts
+# with `rm ` and was dropped unexamined, while the head fragment tokenised to
+# the bare word `node_modules` -- which IS disposable. The exemption then saw an
+# all-disposable target list and allowed an unrecoverable deletion of a real
+# path. The same bypass worked with `|` and `&`.
+#
+# So separators are recognised only OUTSIDE quotes. Quoting is preserved
+# verbatim here rather than resolved: the tokeniser below still needs to see it
+# to tell a redirection from a filename that merely starts with `>`. This is
+# the same quote scan TOKENISE performs, kept separate because the two want
+# opposite things from a quote -- one copies it through, the other strips it.
+readonly SEGMENT='
+BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+{
+  out = ""; n = length($0)
+  for (i = 1; i <= n; i++) {
+    c = substr($0, i, 1)
+    if (c == BS) {
+      out = out c
+      if (++i <= n) { out = out substr($0, i, 1) }
+      continue
+    }
+    if (c == SQ) {
+      out = out c
+      while (++i <= n) { c = substr($0, i, 1); out = out c; if (c == SQ) break }
+      continue
+    }
+    if (c == DQ) {
+      out = out c
+      while (++i <= n) {
+        c = substr($0, i, 1)
+        if (c == BS && i < n) { out = out c substr($0, ++i, 1); continue }
+        out = out c
+        if (c == DQ) break
+      }
+      continue
+    }
+    if (c == ";" || c == "|" || c == "&") { out = out "\n"; continue }
+    out = out c
+  }
+  print out
+}'
+
 # A quote-aware tokeniser for ONE command segment, one token per output line.
 #
 # The first character of each line is the verdict on QUOTING -- `q` if any part
@@ -166,7 +213,8 @@ BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
 # deleted with no Trash recovery -- the same hole this function exists to
 # close, reached through a second invocation instead of a second argument.
 #
-# Splitting on separators first means each invocation is considered on its own.
+# Splitting on separators first means each invocation is considered on its own
+# -- and that split is quote-aware, because one that is not can be steered.
 rm_targets() {
   local seg line tok quoted skip_next end_of_opts seen_operand
   # `set -f` for the whole scan: the word list below is deliberately unquoted so
@@ -243,7 +291,7 @@ rm_targets() {
         printf '%s\n' "$tok"
       fi
     done < <(printf '%s\n' "${seg#rm }" | awk "$TOKENISE")
-  done < <(tr ';|&' '\n' <<< "$cmd")
+  done < <(printf '%s\n' "$cmd" | awk "$SEGMENT")
   set +f
 }
 

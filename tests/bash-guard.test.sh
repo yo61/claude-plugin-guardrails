@@ -310,5 +310,23 @@ expect ALLOW 'grep -n BASH_SOURCE script.sh'
 expect BLOCK 'echo "${arr[0]}"'
 expect BLOCK 'printf %s "${parts[0]}"'
 
+# A SEPARATOR INSIDE QUOTES is part of the filename, not a break between two
+# commands. Splitting there tore the argument in two: the tail no longer looked
+# like an `rm` invocation and was dropped unexamined, and the head tokenised to
+# a bare disposable name, so the exemption allowed deleting a real path.
+expect BLOCK 'rm -rf "node_modules;important-project"'
+expect BLOCK 'rm -rf "node_modules|important-project"'
+expect BLOCK 'rm -rf "node_modules&important-project"'
+expect BLOCK "rm -rf '.venv;important-project'"
+expect BLOCK 'rm -rf .venv "node_modules;important-project"'
+# ...but a path genuinely under the machine's temp filesystem stays disposable
+# however it is named -- the separator changes the filename, not the location.
+expect ALLOW 'rm -rf "/tmp/scratch;important-project"'
+expect BLOCK 'rm -rf node_modules\;important-project'
+# ...while an UNQUOTED separator still ends the invocation, so each one is
+# judged on its own targets.
+expect ALLOW 'rm -rf node_modules; rm -rf .venv'
+expect BLOCK 'rm -rf node_modules; rm -rf ~/important-project'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
