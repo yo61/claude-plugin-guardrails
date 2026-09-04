@@ -56,6 +56,13 @@ ask() {
   fi
 }
 
+# A bash-only variable used AS a variable, with single-quoted literals removed
+# first so a command that merely searches for the spelling does not qualify.
+bash_variable_reference() {
+  printf '%s' "$subject" | awk "$STRIP_SQ" \
+    | grep -Eq '\$\{?(BASH_(SOURCE|VERSINFO|LINENO|ARGV|ARGC|SUBSHELL))'
+}
+
 # The command authors or invokes a real script for another interpreter or
 # machine, so tool choices that are wrong *here* may be right *there*.
 #
@@ -79,7 +86,7 @@ ask() {
 targets_real_bash() {
   matches '#!(/usr/bin/env[[:space:]]+bash|/bin/bash)' \
     || matches "${BOUNDARY}bash[[:space:]]+(-[cs]|<)" \
-    || matches '\$\{?(BASH_(SOURCE|VERSINFO|LINENO|ARGV|ARGC|SUBSHELL))'
+    || bash_variable_reference
 }
 
 # Scratch, temp and regenerable trees. `trash` is the wrong tool for these:
@@ -104,6 +111,45 @@ readonly DISPOSABLE_NAMES='(scratchpad|node_modules|\.venv|\.pytest_cache|__pyca
 readonly DISPOSABLE_ABS='^(/private)?/tmp(/|$)|^/var/folders(/|$)'
 
 readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
+
+# The command with single-quoted spans removed.
+#
+# Evidence of bash source is a variable REFERENCE, and single quotes are what
+# makes something not one: no shell expands `${BASH_SOURCE[0]}` written inside
+# them. Scanning the raw text counted such a literal as evidence, so
+# `grep -n '${BASH_SOURCE[0]}' script.sh; echo "${arr[0]}"` switched off every
+# zsh rule and let the real mistake beside it through. Double-quoted spans are
+# kept, because there the reference does expand and the subject really is bash.
+readonly STRIP_SQ='
+BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+{ buf = buf (NR > 1 ? "\n" : "") $0 }
+END {
+  n = length(buf); out = ""
+  for (i = 1; i <= n; i++) {
+    c = substr(buf, i, 1)
+    if (c == BS) {
+      out = out c
+      if (++i <= n) { out = out substr(buf, i, 1) }
+      continue
+    }
+    if (c == SQ) {
+      while (++i <= n) { if (substr(buf, i, 1) == SQ) break }
+      continue
+    }
+    if (c == DQ) {
+      out = out c
+      while (++i <= n) {
+        c = substr(buf, i, 1)
+        if (c == BS && i < n) { out = out c substr(buf, ++i, 1); continue }
+        out = out c
+        if (c == DQ) break
+      }
+      continue
+    }
+    out = out c
+  }
+  print out
+}'
 
 # Every spelling of a redirect operator. Not just `>`/`<`: `&>` and `&>>` send
 # both streams, `>&`/`<&` duplicate a descriptor, and any of them may carry a

@@ -386,5 +386,13 @@ expect ALLOW 'rm -rf node_modules >| log'
 expect ALLOW 'rm -rf .venv >| /dev/null'
 expect BLOCK 'rm -rf node_modules >| log ~/important-project'
 
+# A SINGLE-QUOTED bash variable is a literal, not a reference: no shell expands
+# it, so a command that merely searches for the spelling is not bash source and
+# must not switch off the zsh rules for the mistake sitting beside it.
+expect BLOCK "grep -n '\${BASH_SOURCE[0]}' script.sh; echo \"\${arr[0]}\""
+expect BLOCK "printf %s '\${BASH_SOURCE[0]}'; echo \"\${parts[0]}\""
+# ...while a double-quoted one DOES expand, so it remains evidence.
+expect ALLOW 'printf %s "${BASH_SOURCE[0]}"'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
