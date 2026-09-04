@@ -172,6 +172,19 @@ expect BLOCK 'rm -rf .venv ">important-project"'
 expect BLOCK 'rm -rf .venv "-importantfile"'
 expect BLOCK 'rm -rf .venv ">" important-project'
 expect BLOCK "rm -rf .venv '-importantfile'"
+# A quoted token after a BARE redirect operator is that redirection's file, not
+# a target. Handling quotes first both emitted it as a target and left the skip
+# flag set, swallowing the next real target.
+expect BLOCK 'rm -rf .venv > ".venv" ~/important-project'
+expect ALLOW 'rm -rf node_modules > "log.txt"'
+# BSD rm (macOS) stops option parsing at the first operand, so a later
+# dash-prefixed argument is a literal PATH. Verified against the real rm:
+# `rm -rf .venv -importantfile` deleted both.
+expect BLOCK 'rm -rf .venv -importantfile'
+expect BLOCK 'rm -rf node_modules -important-file'
+# ...but dash-arguments BEFORE any operand are still options.
+expect ALLOW 'rm -fr --verbose node_modules'
+expect ALLOW 'rm -rf --one-file-system node_modules'
 # A wildcard must be read as TEXT, never expanded against the guard's own cwd:
 # the guard's process never follows a `cd` from the command it is judging.
 expect BLOCK 'rm -rf ~/projects/*'

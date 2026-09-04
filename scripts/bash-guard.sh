@@ -87,7 +87,7 @@ readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|$)"
 #
 # Splitting on separators first means each invocation is considered on its own.
 rm_targets() {
-  local seg tok skip_next end_of_opts
+  local seg tok skip_next end_of_opts seen_operand
   # `set -f` for the whole scan: the word list below is deliberately unquoted so
   # the shell splits it, but without noglob it would also PATHNAME-EXPAND. A
   # target containing `*` would then be replaced by whatever happens to exist in
@@ -108,28 +108,33 @@ rm_targets() {
     [[ $seg =~ (^|[[:space:]])-[a-zA-Z]*(rf|fr|Rf|fR)[a-zA-Z]*([[:space:]]|$) ]] || continue
     skip_next=0
     end_of_opts=0
+    seen_operand=0
     for tok in ${seg#rm }; do
+      # FIRST, unconditionally: consume the file belonging to a preceding bare
+      # redirect operator. This must precede the quote branch -- `> "file"` is a
+      # perfectly ordinary redirection, and handling quotes first both emitted
+      # that filename as a target AND left skip_next set, so the NEXT real
+      # target was swallowed instead.
+      if [[ $skip_next -eq 1 ]]; then
+        skip_next=0
+        continue
+      fi
+
       # `--` ends option parsing: everything after it is a PATH, however it is
       # spelled. Without this, a dash-prefixed target was discarded as a flag --
       # `rm -rf -- -importantfile node_modules` reported only `node_modules`,
       # the exemption saw an all-disposable list, and a real file was deleted
-      # with no Trash recovery. That is the same bypass class as the chained and
-      # multi-target holes, reached through argument syntax instead.
+      # with no Trash recovery.
       if [[ $end_of_opts -eq 0 && $tok == -- ]]; then
         end_of_opts=1
         continue
       fi
       tok=${tok%)} # a trailing `)` from a subshell
 
-      # QUOTING DECIDES CLASSIFICATION, so it is tested before anything else.
-      # A real shell treats `>` as a redirection and a leading `-` as an option
-      # ONLY when the token is unquoted; quoting makes it a literal path. An
-      # earlier version stripped quotes first and then classified, which
-      # inverted that: `">important-project"` was read as a redirection and
-      # `"-importantfile"` as a flag, so both were silently DROPPED from the
-      # target list. The remaining targets were disposable, the exemption
-      # applied, and a real path was deleted with no Trash recovery. A quoted
-      # `">"` was worse still -- it consumed the following argument too.
+      # QUOTING DECIDES CLASSIFICATION. A shell treats `>` as a redirection and
+      # a leading `-` as an option ONLY when the token is unquoted; quoting
+      # makes it a literal path. Classifying after stripping inverted that and
+      # silently dropped quoted targets from the list.
       local quoted=0
       case $tok in
         \"*\" | \'*\')
@@ -139,7 +144,10 @@ rm_targets() {
         *) ;; # unquoted: fall through to the classification checks below
       esac
       if [[ $quoted -eq 1 ]]; then
-        [[ -n $tok ]] && printf '%s\n' "$tok"
+        if [[ -n $tok ]]; then
+          seen_operand=1
+          printf '%s\n' "$tok"
+        fi
         continue
       fi
       # Redirections are not paths. Without this, `rm -rf .venv 2>/dev/null`
@@ -147,17 +155,24 @@ rm_targets() {
       # the caller to `trash /dev/null` -- a false block on one of the commonest
       # idioms there is. A bare operator takes the NEXT token as its file; a
       # joined form (`2>/dev/null`, `>>log`) carries its own.
-      if [[ $skip_next -eq 1 ]]; then
-        skip_next=0
-        continue
-      fi
       if [[ $tok =~ ^[0-9]*(\>\>|\>|\<)$ ]]; then
         skip_next=1
         continue
       fi
       [[ $tok =~ ^[0-9]*(\>|\<) ]] && continue
-      [[ $end_of_opts -eq 0 && $tok == -* ]] && continue
-      [[ -n $tok ]] && printf '%s\n' "$tok"
+      # A leading `-` is an OPTION only while rm is still scanning options.
+      # BSD rm (macOS -- this hook's actual deployment target) does not permute:
+      # once a filename has been seen, a later `-`-prefixed argument is a
+      # literal path. Verified by creating a file named `-importantfile` and
+      # running the real rm: `rm -rf .venv -importantfile` deleted BOTH. GNU rm
+      # would reject it as an invalid option, so treating it as a target is the
+      # safe reading on either platform -- a non-disposable target denies, and
+      # an invalid option was never going to delete anything anyway.
+      [[ $end_of_opts -eq 0 && $seen_operand -eq 0 && $tok == -* ]] && continue
+      if [[ -n $tok ]]; then
+        seen_operand=1
+        printf '%s\n' "$tok"
+      fi
     done
   done < <(tr ';|&' '\n' <<< "$cmd")
   set +f
