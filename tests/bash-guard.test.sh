@@ -328,5 +328,11 @@ expect BLOCK 'rm -rf node_modules\;important-project'
 expect ALLOW 'rm -rf node_modules; rm -rf .venv'
 expect BLOCK 'rm -rf node_modules; rm -rf ~/important-project'
 
+# A BASH_ name is evidence of bash only as a VARIABLE REFERENCE. Matching the
+# bare name anywhere let an incidental mention switch off every zsh rule for
+# the rest of the command, so a real mistake beside it went unreported.
+expect BLOCK 'grep -n BASH_SOURCE script.sh; echo "${arr[0]}"'
+expect BLOCK 'echo BASH_VERSINFO && printf %s "${parts[0]}"'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

@@ -64,7 +64,11 @@ ask() {
 # advised `[1]` instead. That advice is wrong twice over -- the text is bash,
 # where index 0 is correct, and in zsh `BASH_SOURCE` does not exist at ANY
 # index, so there is nothing the rule could usefully say. None of these names
-# exist in zsh, so their presence means the subject is bash source.
+# exist in zsh, so a REFERENCE to one means the subject is bash source.
+#
+# A reference, not a mention. Matching the bare name anywhere let an
+# incidental `grep -n BASH_SOURCE script.sh` switch off every zsh rule for
+# the rest of that command, so a genuine mistake beside it went unreported.
 #
 # BASH_REMATCH is deliberately NOT in that list. zsh fills `$match` instead,
 # so using it here is a real mistake with a rule of its own, and treating it
@@ -75,7 +79,7 @@ ask() {
 targets_real_bash() {
   matches '#!(/usr/bin/env[[:space:]]+bash|/bin/bash)' \
     || matches "${BOUNDARY}bash[[:space:]]+(-[cs]|<)" \
-    || matches 'BASH_(SOURCE|VERSINFO|LINENO|ARGV|ARGC|SUBSHELL)'
+    || matches '\$\{?(BASH_(SOURCE|VERSINFO|LINENO|ARGV|ARGC|SUBSHELL))'
 }
 
 # Scratch, temp and regenerable trees. `trash` is the wrong tool for these:
