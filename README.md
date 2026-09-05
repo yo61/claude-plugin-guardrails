@@ -83,8 +83,12 @@ tool for that, which is the better route anyway.
 ## Tests
 
 ```bash
-bash tests/bash-guard.test.sh    # 72 cases, both directions
+GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 280 cases
 ```
+
+`GUARD` defaults to the installed hook at `~/.claude/hooks/bash-guard.sh`, so
+without it the suite reports on the copy you have installed rather than the one
+you are editing. The prek hook and CI both pass the repository path.
 
 Lint: `shellcheck scripts/*.sh` and `shfmt -i 2 -bn -ci -sr -d scripts/*.sh`.
 
