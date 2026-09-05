@@ -65,6 +65,12 @@ repos:
         language: system
         pass_filenames: false
         files: '^(scripts|tests)/.*\.sh$'
+      - id: inert-cases
+        name: guard cases are text, not syntax
+        entry: bash tests/inert-cases.sh
+        language: system
+        pass_filenames: false
+        files: '^tests/bash-guard\.test\.sh$'
 
   - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
     rev: v9.26.0
