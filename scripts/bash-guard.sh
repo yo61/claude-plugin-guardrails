@@ -64,9 +64,17 @@ ask() {
 
 # A bash-only variable used AS a variable, with single-quoted literals removed
 # first so a command that merely searches for the spelling does not qualify.
+#
+# The name must END where the list says it does. Without a trailing boundary the
+# alternation matched any identifier merely STARTING with one of these --
+# `${BASH_SOURCE_ROOT}`, a name this shell knows nothing about -- and that
+# invented variable was enough to mark its clause as bash source and skip every
+# rule in it. `[` and `}` are what really follow a reference, so a character
+# class of "not an identifier character, or end of line" admits the genuine
+# spellings and nothing longer.
 bash_variable_reference() {
   printf '%s' "$subject" | awk "$STRIP_SQ" \
-    | grep -Eq '\$\{?(BASH_(SOURCE|VERSINFO|LINENO|ARGV|ARGC|SUBSHELL))'
+    | grep -Eq '\$\{?(BASH_(SOURCE|VERSINFO|LINENO|ARGV|ARGC|SUBSHELL))([^A-Za-z0-9_]|$)'
 }
 
 # The command authors or invokes a real script for another interpreter or

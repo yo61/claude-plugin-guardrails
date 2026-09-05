@@ -441,5 +441,20 @@ ok_msg "the same violation in two clauses reports once" "$(reasons "$DUP")" "1"
 ok_msg "two different violations both report" \
   "$(reasons "$(printf '%s install a; which foo' pip)")" "2"
 
+# The name has to END where the list says. Without a trailing boundary any
+# identifier merely STARTING with one of these counted -- an invented
+# `${BASH_SOURCE_ROOT}` marked its clause as bash source and skipped every rule
+# in it, including the zero-index bug sitting right beside it.
+expect BLOCK "echo \"\${BASH_SOURCE_ROOT}\" \"\${arr[0]}\""
+# Same clause as the violation, deliberately: with evidence scoped per
+# clause, a violation in a NEIGHBOURING clause is caught either way and so
+# proves nothing about the name boundary.
+expect BLOCK "pip install \"\${BASH_LINENOX}\""
+expect BLOCK "black \"\${BASH_ARGVV}\""
+# ...while the real spellings still qualify, however they are written.
+expect ALLOW "printf %s \"\${BASH_SOURCE[0]}\""
+expect ALLOW 'printf %s "$BASH_SOURCE"'
+expect ALLOW 'printf %s "${BASH_VERSINFO}"'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
