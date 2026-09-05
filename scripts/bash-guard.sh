@@ -52,11 +52,18 @@ matches() {
 
 rule() {
   matches "$1" || return 0
+  add_denial "$2"
+}
+
+# Raise a denial that a regex over the whole command cannot express. The `rm`
+# rule decides from the parsed invocations instead, and needs to say so without
+# re-deriving the decision as a pattern.
+add_denial() {
   local d
   for d in ${denials[@]+"${denials[@]}"}; do
-    [[ $d == "$2" ]] && return 0
+    [[ $d == "$1" ]] && return 0
   done
-  denials+=("$2")
+  denials+=("$1")
 }
 
 ask() {
@@ -589,6 +596,48 @@ rm_candidates() {
 #
 # Splitting on separators first means each invocation is considered on its own
 # -- and that split is quote-aware, because one that is not can be steered.
+# THE one test for "an invocation this rule governs", and the one place a
+# candidate is normalised. Both halves of the rule ask it, which is the point:
+# when they asked separately they drifted twice. First on what counts as
+# recursive -- an adjacent `rf` pair in both, so `-r -f` and `-rvf` escaped
+# each. Then on WHERE the flag may sit: the scan looked anywhere in the
+# invocation while the rule looked only among leading dash-prefixed tokens, so
+# `rm somefile -rf ~/project` had its targets judged and found protected while
+# the rule never fired -- no deny, no ask. GNU rm permutes its arguments, so
+# that really does delete the tree; the BSD rm here errors instead.
+#
+# Sets GOVERNED_CAND to the normalised invocation so the caller does not repeat
+# the trimming and disagree about that too.
+rm_candidate_governed() {
+  local cand=$1
+  cand=${cand#"${cand%%[![:space:]]*}"} # ltrim
+  cand=${cand#(}                        # a leading `(` from a subshell
+  cand=${cand#\{}                       # ...or `{` from a brace group
+  cand=${cand#"${cand%%[![:space:]]*}"}
+  GOVERNED_CAND=$cand
+  [[ $cand == rm[[:space:]]* ]] || return 1
+
+  # Only invocations the rule governs. Collecting from every `rm` let a plain
+  # file removal poison the check for a legitimate cleanup beside it:
+  # `rm -f README.md` and `rm -rf node_modules` are each allowed alone, but
+  # together the non-disposable README.md made the pair deny -- a false block
+  # built out of two permitted commands.
+  [[ $cand =~ (^|[[:space:]])${RECURSIVE}([[:space:]]|$) ]]
+}
+
+# Whether the command runs any governed `rm` at all, over the SAME enumeration
+# the target scan walks. The rule used to re-derive this as a regex over the
+# whole command, and that second implementation is what kept drifting.
+governed_rm_present() {
+  local seg cand
+  while IFS= read -r -d '' seg; do
+    while IFS= read -r -d '' cand; do
+      rm_candidate_governed "$cand" && return 0
+    done < <(rm_candidates "$seg")
+  done < <(printf '%s' "$cmd" | awk "$SEGMENT")
+  return 1
+}
+
 rm_targets() {
   local seg cand line tok quoted skip_next end_of_opts seen_operand
   # `set -f` for the whole scan: the word list below is deliberately unquoted so
@@ -600,25 +649,8 @@ rm_targets() {
   set -f
   while IFS= read -r -d '' seg; do
     while IFS= read -r -d '' cand; do
-      cand=${cand#"${cand%%[![:space:]]*}"} # ltrim
-      cand=${cand#(}                        # a leading `(` from a subshell
-      cand=${cand#\{}                       # ...or `{` from a brace group
-      cand=${cand#"${cand%%[![:space:]]*}"}
-      [[ $cand == rm[[:space:]]* ]] || continue
-      # Only invocations the RULE governs. Collecting from every `rm` let a
-      # plain file removal poison the check for a legitimate cleanup beside it:
-      # `rm -f README.md` and `rm -rf node_modules` are each allowed alone, but
-      # together the non-disposable README.md made the pair deny -- a false
-      # block built out of two permitted commands.
-      #
-      # RECURSION is what the rule governs, and it must be the same test the
-      # rule itself uses. Both looked for an ADJACENT `rf` pair, which is one
-      # spelling of it: `rm -r -f`, `rm -R -f` and even `rm -rvf` -- the same
-      # flags with a `v` between them -- matched neither, so the rule never
-      # fired and those targets never joined the pool. A cleanup beside such an
-      # invocation then supplied the only target found, and its disposable name
-      # exempted the deletion next to it.
-      [[ $cand =~ (^|[[:space:]])${RECURSIVE}([[:space:]]|$) ]] || continue
+      rm_candidate_governed "$cand" || continue
+      cand=$GOVERNED_CAND
       skip_next=0
       end_of_opts=0
       seen_operand=0
@@ -756,9 +788,11 @@ check_tool_choice() {
   rule "${BOUNDARY}which[[:space:]]+[a-zA-Z0-9_.-]+([[:space:]]|$)" \
     'Use `command -v <cmd>`, not `which`. `which` is an external binary with inconsistent behaviour across systems and a non-POSIX exit status; `command -v` is a POSIX shell builtin, so it is also the correct choice inside scripts and GitHub Actions `run:` blocks.'
 
-  if ! all_rm_targets_disposable; then
-    rule "${BOUNDARY}rm[[:space:]]+(-[a-zA-Z]+[[:space:]]+|--[a-z-]+[[:space:]]+)*${RECURSIVE}([[:space:]]|$)" \
-      'Use `trash <path>`, not a recursive `rm` -- it moves to the macOS Trash and stays recoverable. This covers every spelling of the flag (`-rf`, `-r -f`, `--recursive`), and `-f` is not what makes it unrecoverable: `rm -r` deletes the tree just the same. (Scratch, temp and regenerable trees such as /tmp, node_modules and .venv are exempt and not blocked; `trash` is the wrong tool for those.)'
+  # Asked of the parsed invocations, not of a pattern over the command text.
+  # `governed_rm_present` and the target scan share one enumeration and one
+  # test, so there is no second implementation left to disagree with.
+  if governed_rm_present && ! all_rm_targets_disposable; then
+    add_denial 'Use `trash <path>`, not a recursive `rm` -- it moves to the macOS Trash and stays recoverable. This covers every spelling of the flag (`-rf`, `-r -f`, `--recursive`), and `-f` is not what makes it unrecoverable: `rm -r` deletes the tree just the same. (Scratch, temp and regenerable trees such as /tmp, node_modules and .venv are exempt and not blocked; `trash` is the wrong tool for those.)'
   fi
 
   if targets_real_bash; then

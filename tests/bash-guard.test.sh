@@ -736,5 +736,27 @@ expect ALLOW 'rm -f README.md'
 expect ALLOW 'rm -f README.md; rm -rf node_modules'
 expect ALLOW 'rm -i notes.txt'
 
+# A FLAG AFTER AN OPERAND IS STILL A FLAG. GNU rm permutes its arguments, so
+# `rm dummy.txt -rf victim` really does delete the tree recursively -- verified
+# with the grm on this machine; the BSD rm here errors instead. The rule looked
+# for the flag among dash-prefixed tokens only, while the target scan looked
+# anywhere, so the scan judged the targets and found them protected while the
+# rule never fired: no deny, no ask, nothing.
+expect BLOCK 'rm somefile -rf ~/important-project'
+expect BLOCK 'rm somefile -r ~/important-project'
+expect BLOCK 'rm README.md -rf ~/important-project'
+expect BLOCK 'rm -rf node_modules; rm somefile -rf ~/important-project'
+# The exemption does NOT follow it there, and both reasons are deliberate.
+# `somefile` is a non-disposable target the command really deletes. And a
+# dash-prefixed argument after the first operand is a FILENAME under BSD rules,
+# so `-rf` there is a target named `-rf` rather than a flag -- the safe reading
+# on either platform, since GNU treats it as a flag and BSD really would try to
+# remove a file by that name.
+expect BLOCK 'rm somefile -rf node_modules'
+expect BLOCK 'rm .venv -rf node_modules'
+# Still not governed without recursion, wherever the flags sit.
+expect ALLOW 'rm somefile -f README.md'
+expect ALLOW 'rm README.md notes.txt'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
