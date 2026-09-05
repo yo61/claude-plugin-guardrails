@@ -119,7 +119,7 @@ for_each_clause() {
   local clause
   while IFS= read -r -d '' clause; do
     [[ -n ${clause//[[:space:]]/} ]] || continue
-    subject=$clause
+    subject=$(printf '%s' "$clause" | awk "$STRIP_SQ")
     "$@"
   done < <(printf '%s' "$cmd" | awk "$SEGMENT")
 }
@@ -335,6 +335,42 @@ END {
   if (started) { printf "%s%s%c", (quoted ? "q" : "u"), tok, 0 }
 }'
 
+# The body of each substitution in a segment, NUL-separated, skipping any that
+# is quoted out of existence.
+#
+# Scanning the raw text for `$(` treated a literal as executable:
+# `echo '$(rm -rf ~/project)'` is a string, and denying beside it false-blocked
+# an ordinary cleanup. Single quotes are skipped whole for that reason. Double
+# quotes are NOT -- substitution does happen inside them -- so the scan
+# continues through them and only tracks whether it is inside a pair, since a
+# single quote in there is just an apostrophe.
+readonly SUBST_BODIES='
+BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+{ buf = buf (NR > 1 ? "\n" : "") $0 }
+END {
+  n = length(buf); dq = 0
+  for (i = 1; i <= n; i++) {
+    c = substr(buf, i, 1)
+    if (c == BS) { i++; continue }
+    if (c == DQ) { dq = 1 - dq; continue }
+    if (c == SQ && dq == 0) {
+      while (++i <= n) { if (substr(buf, i, 1) == SQ) break }
+      continue
+    }
+    if ((c == "$" || c == "<" || c == ">") && i < n && substr(buf, i + 1, 1) == "(") {
+      body = ""
+      for (j = i + 2; j <= n; j++) {
+        ch = substr(buf, j, 1)
+        if (ch == ")") break
+        body = body ch
+      }
+      printf "%s%c", body, 0
+      i++
+      continue
+    }
+  }
+}'
+
 # Every command a segment could be running, NUL-separated: the segment itself,
 # then the body of each substitution inside it -- command or process,
 # outermost first.
@@ -352,34 +388,24 @@ END {
 # truncates that candidate early, leaving an unterminated quote and a target
 # that cannot be judged disposable -- the safe direction.
 rm_candidates() {
-  local seg=$1 rest body opener='$('
+  local seg=$1 body sub
   printf '%s\0' "$seg"
   # PROCESS substitution runs a command too. `<(...)` and `>(...)` are executed
   # for their side effects whether or not anything reads the descriptor --
-  # confirmed with `zsh -c ": <(touch marker)"`, which creates the file. They
-  # are normalised to the same opener rather than scanned for separately: what
-  # matters here is only where a command starts, and all three spellings start
-  # one.
-  rest=${seg//'<('/"$opener"}
-  rest=${rest//'>('/"$opener"}
-  while [[ $rest == *"$opener"* ]]; do
-    rest=${rest#*"$opener"}
+  # confirmed with `zsh -c ": <(touch marker)"`, which creates the file -- so
+  # the scanner treats all three openers alike.
+  while IFS= read -r -d '' sub; do
     # A substitution body is a COMMAND LIST, not a single command, so it is
     # split again the same way the whole command was. Emitted whole, a body
-    # whose first word is not `rm` -- `$(true; rm -rf ~/project)`,
-    # `$(cd /tmp && rm -rf ~/project)` -- matched nothing and contributed no
-    # target at all. Alone that failed safe, since no targets anywhere means
-    # unjudgeable; but the disposable check is scored across the whole command,
-    # so one ordinary `rm -rf node_modules` beside it supplied the target that
-    # passed, and the hidden deletion was never examined.
-    #
-    # The quoting is why the outer split missed it: `"$(true; rm ...)"` sits
-    # inside double quotes, which the segmenter copies verbatim, so that `;`
-    # was never a separator at the outer level.
+    # whose first word is not `rm` -- `$(true; rm -rf ~/project)` -- matched
+    # nothing and contributed no target at all. Alone that failed safe, since no
+    # targets anywhere means unjudgeable; but the disposable check is scored
+    # across the whole command, so one ordinary cleanup beside it supplied the
+    # target that passed, and the hidden deletion was never examined.
     while IFS= read -r -d '' body; do
       printf '%s\0' "$body"
-    done < <(printf '%s' "${rest%%)*}" | awk "$SEGMENT")
-  done
+    done < <(printf '%s' "$sub" | awk "$SEGMENT")
+  done < <(printf '%s' "$seg" | awk "$SUBST_BODIES")
 }
 
 # The paths EVERY `rm` in the command would delete, one per line, flags dropped.
@@ -511,7 +537,18 @@ all_rm_targets_disposable() {
 }
 
 check_tool_choice() {
-  subject=$cmd
+  # SINGLE-QUOTED TEXT IS NOT SYNTAX. These rules recognise a tool by the shape
+  # of the command, and that shape is meaningless inside single quotes: nothing
+  # there is expanded, parsed or run.
+  #
+  # Two symptoms, one cause. `grep -F '$(rm -rf ~/x)' f` matched the recursive
+  # -grep rule, because `-rf` inside the string looks like a flag. And the same
+  # literal matched the trash rule through the `$(` boundary while the target
+  # scan -- correctly -- found no command there to judge, so a search that
+  # deletes nothing was blocked for deleting something.
+  #
+  # Stripping first makes the two halves agree about what a command is.
+  subject=$(printf '%s' "$cmd" | awk "$STRIP_SQ")
 
   # `git grep` needs no special case: in `git grep`, the word `grep` sits after
   # a command name rather than at command position, so BOUNDARY skips it. That

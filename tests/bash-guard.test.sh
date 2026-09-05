@@ -526,5 +526,16 @@ expect BLOCK "echo \\\$BASH_SOURCE \"\${arr[0]}\""
 # ...while an unescaped one still is a reference.
 expect ALLOW "printf %s \"\${BASH_SOURCE[0]}\""
 
+# A substitution inside SINGLE quotes is text. Scanning the raw segment for an
+# opener treated the literal as executable, so a string mentioning a protected
+# deletion false-blocked the ordinary cleanup standing next to it.
+expect ALLOW "echo '\$(rm -rf ~/important-project)'; rm -rf node_modules"
+expect ALLOW "grep -F '\$(rm -rf ~/important-project)' file.txt"
+# ...and inside DOUBLE quotes it really is a substitution.
+expect BLOCK "echo \"\$(rm -rf ~/important-project)\"; rm -rf node_modules"
+# An apostrophe inside double quotes is an apostrophe, not a quote opener --
+# mistaking it swallows the rest of the command and hides what follows.
+expect ALLOW "echo \"it's \$(rm -rf node_modules)\"; rm -rf .venv"
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
