@@ -478,5 +478,17 @@ expect BLOCK "pre-commit run --all-files \"\${BASH_SOURCE[0]}\""
 expect ALLOW "mapfile -t x < \"\${BASH_SOURCE[0]}\""
 expect ALLOW "printf %s \"\${parts[0]}\" \"\${BASH_SOURCE[0]}\""
 
+# EVERY command substitution, not just the outermost. Stripping only the first
+# `$(` left a nested deletion invisible: the segment yielded no targets, so a
+# disposable cleanup elsewhere in the command made every collected target
+# disposable and suppressed the rule -- while the nested deletion still ran.
+expect BLOCK 'echo "$(echo $(rm -rf ~/important-project))"'
+expect BLOCK 'echo "$(echo $(rm -rf ~/important-project))"; rm -rf node_modules'
+expect BLOCK 'x=$(echo "$(echo $(rm -rf ~/important-project))")'
+expect BLOCK 'rm -rf node_modules; echo "$(echo $(rm -rf ~/important-project))"'
+# ...and nesting a disposable one changes nothing.
+expect ALLOW 'echo "$(echo $(rm -rf node_modules))"; rm -rf .venv'
+expect ALLOW 'echo "$(echo $(rm -rf /tmp/scratch))"'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

@@ -331,6 +331,31 @@ END {
   if (started) { printf "%s%s%c", (quoted ? "q" : "u"), tok, 0 }
 }'
 
+# Every command a segment could be running, NUL-separated: the segment itself,
+# then the body of each command substitution inside it, outermost first.
+#
+# Stripping only the OUTERMOST `$(` was a fail-open. The remainder of
+# `echo "$(echo $(rm -rf ~/project))"` does not begin with `rm `, so that
+# segment yielded no targets at all -- and a disposable `rm -rf node_modules`
+# anywhere else in the command then made every collected target disposable, so
+# the trash rule was suppressed and the nested deletion ran unrecoverably.
+# Taking the INNERMOST instead would fail the same way with the nesting
+# reversed. Every one has to be looked at.
+#
+# A substitution's command ends at its first `)`, which is also what stops a
+# candidate swallowing the text that follows it. A `)` inside a quoted filename
+# truncates that candidate early, leaving an unterminated quote and a target
+# that cannot be judged disposable -- the safe direction.
+rm_candidates() {
+  local seg=$1 rest
+  printf '%s\0' "$seg"
+  rest=$seg
+  while [[ $rest == *'$('* ]]; do
+    rest=${rest#*'$('}
+    printf '%s\0' "${rest%%)*}"
+  done
+}
+
 # The paths EVERY `rm` in the command would delete, one per line, flags dropped.
 #
 # Every invocation, not one: the previous version used a single sed whose
@@ -343,7 +368,7 @@ END {
 # Splitting on separators first means each invocation is considered on its own
 # -- and that split is quote-aware, because one that is not can be steered.
 rm_targets() {
-  local seg line tok quoted skip_next end_of_opts seen_operand
+  local seg cand line tok quoted skip_next end_of_opts seen_operand
   # `set -f` for the whole scan: the word list below is deliberately unquoted so
   # the shell splits it, but without noglob it would also PATHNAME-EXPAND. A
   # target containing `*` would then be replaced by whatever happens to exist in
@@ -352,92 +377,74 @@ rm_targets() {
   # must not touch the filesystem.
   set -f
   while IFS= read -r -d '' seg; do
-    seg=${seg#"${seg%%[![:space:]]*}"} # ltrim
-    seg=${seg#(}                       # a leading `(` from a subshell
-    seg=${seg#"${seg%%[![:space:]]*}"}
-    # A command substitution starts a new command, and the segmenter does not
-    # split on `$(`. So `LOG=$(rm -rf node_modules)` arrived as ONE segment that
-    # did not begin with `rm `, no targets were collected, and the empty-target
-    # fail-safe called it unjudgeable -- denying an all-disposable cleanup that
-    # the guard allowed before this branch. The outer rule already treats `$(`
-    # as a command start; this makes the target scan agree with it.
-    #
-    # Only the FIRST opener is stripped. Consuming every one would leave just
-    # the text after the last, so `$(rm -rf ~/keep)$(rm -rf node_modules)` would
-    # report only the disposable half and exempt the deletion of the other.
-    if [[ $seg != rm[[:space:]]* && $seg == *'$('* ]]; then
-      seg=${seg#*'$('}
-      seg=${seg#"${seg%%[![:space:]]*}"}
-      # The substitution's closing paren can arrive glued to the quote of the
-      # string that contained it, leaving a token like `.venv)"`. That reads as
-      # quoted, so the trailing-paren strip skips it and a disposable target
-      # looks like a path whose name ends in a bracket.
-      seg=${seg%\"}
-      seg=${seg%\'}
-    fi
-    [[ $seg == rm[[:space:]]* ]] || continue
-    # Only invocations the RULE governs, i.e. recursive-force ones. Collecting
-    # from every `rm` let a plain file removal poison the check for a legitimate
-    # cleanup beside it: `rm -f README.md` and `rm -rf node_modules` are each
-    # allowed alone, but together the non-disposable README.md made the pair
-    # deny -- a false block built out of two permitted commands.
-    [[ $seg =~ (^|[[:space:]])-[a-zA-Z]*(rf|fr|Rf|fR)[a-zA-Z]*([[:space:]]|$) ]] || continue
-    skip_next=0
-    end_of_opts=0
-    seen_operand=0
-    # Tokenise quote-aware (see TOKENISE): `q`/`u` prefix, then the token.
-    while IFS= read -r -d '' line; do
-      quoted=${line:0:1}
-      tok=${line:1}
+    while IFS= read -r -d '' cand; do
+      cand=${cand#"${cand%%[![:space:]]*}"} # ltrim
+      cand=${cand#(}                        # a leading `(` from a subshell
+      cand=${cand#"${cand%%[![:space:]]*}"}
+      [[ $cand == rm[[:space:]]* ]] || continue
+      # Only invocations the RULE governs, i.e. recursive-force ones. Collecting
+      # from every `rm` let a plain file removal poison the check for a legitimate
+      # cleanup beside it: `rm -f README.md` and `rm -rf node_modules` are each
+      # allowed alone, but together the non-disposable README.md made the pair
+      # deny -- a false block built out of two permitted commands.
+      [[ $cand =~ (^|[[:space:]])-[a-zA-Z]*(rf|fr|Rf|fR)[a-zA-Z]*([[:space:]]|$) ]] || continue
+      skip_next=0
+      end_of_opts=0
+      seen_operand=0
+      # Tokenise quote-aware (see TOKENISE): `q`/`u` prefix, then the token.
+      while IFS= read -r -d '' line; do
+        quoted=${line:0:1}
+        tok=${line:1}
 
-      # FIRST, unconditionally: consume the file belonging to a preceding bare
-      # redirect operator. This must precede the quote branch -- `> "file"` is a
-      # perfectly ordinary redirection, and handling quotes first both emitted
-      # that filename as a target AND left skip_next set, so the NEXT real
-      # target was swallowed instead.
-      if [[ $skip_next -eq 1 ]]; then
-        skip_next=0
-        continue
-      fi
+        # FIRST, unconditionally: consume the file belonging to a preceding bare
+        # redirect operator. This must precede the quote branch -- `> "file"` is a
+        # perfectly ordinary redirection, and handling quotes first both emitted
+        # that filename as a target AND left skip_next set, so the NEXT real
+        # target was swallowed instead.
+        if [[ $skip_next -eq 1 ]]; then
+          skip_next=0
+          continue
+        fi
 
-      # `--` ends option parsing: everything after it is a PATH, however it is
-      # spelled. Without this, a dash-prefixed target was discarded as a flag --
-      # `rm -rf -- -importantfile node_modules` reported only `node_modules`,
-      # the exemption saw an all-disposable list, and a real file was deleted
-      # with no Trash recovery.
-      if [[ $end_of_opts -eq 0 && $tok == -- ]]; then
-        end_of_opts=1
-        continue
-      fi
-      [[ $quoted == u ]] && tok=${tok%)} # a trailing `)` from a subshell
+        # `--` ends option parsing: everything after it is a PATH, however it is
+        # spelled. Without this, a dash-prefixed target was discarded as a flag --
+        # `rm -rf -- -importantfile node_modules` reported only `node_modules`,
+        # the exemption saw an all-disposable list, and a real file was deleted
+        # with no Trash recovery.
+        if [[ $end_of_opts -eq 0 && $tok == -- ]]; then
+          end_of_opts=1
+          continue
+        fi
+        [[ $quoted == u ]] && tok=${tok%)} # a trailing `)` from a subshell
 
-      # Redirections are not paths -- but ONLY when the shell would read them
-      # as redirections, which is why every branch below is gated on the token
-      # having been unquoted. `> log` redirects; `"> log"` is a file named
-      # `> log`, and treating the two alike deleted the file. Without this, `rm -rf .venv 2>/dev/null`
-      # yielded `/dev/null` as a target, no disposable match, and the guard told
-      # the caller to `trash /dev/null` -- a false block on one of the commonest
-      # idioms there is. A bare operator takes the NEXT token as its file; a
-      # joined form (`2>/dev/null`, `>>log`) carries its own.
-      if [[ $quoted == u && $tok =~ ^${REDIR}$ ]]; then
-        skip_next=1
-        continue
-      fi
-      [[ $quoted == u && $tok =~ ^${REDIR} ]] && continue
-      # A leading `-` is an OPTION only while rm is still scanning options.
-      # BSD rm (macOS -- this hook's actual deployment target) does not permute:
-      # once a filename has been seen, a later `-`-prefixed argument is a
-      # literal path. Verified by creating a file named `-importantfile` and
-      # running the real rm: `rm -rf .venv -importantfile` deleted BOTH. GNU rm
-      # would reject it as an invalid option, so treating it as a target is the
-      # safe reading on either platform -- a non-disposable target denies, and
-      # an invalid option was never going to delete anything anyway.
-      [[ $end_of_opts -eq 0 && $seen_operand -eq 0 && $tok == -* ]] && continue
-      if [[ -n $tok ]]; then
-        seen_operand=1
-        printf '%s\0' "$tok"
-      fi
-    done < <(printf '%s' "${seg#rm }" | awk "$TOKENISE")
+        # Redirections are not paths -- but ONLY when the shell would read them
+        # as redirections, which is why every branch below is gated on the token
+        # having been unquoted. `> log` redirects; `"> log"` is a file named
+        # `> log`, and treating the two alike deleted the file. Without this, `rm -rf .venv 2>/dev/null`
+        # yielded `/dev/null` as a target, no disposable match, and the guard told
+        # the caller to `trash /dev/null` -- a false block on one of the commonest
+        # idioms there is. A bare operator takes the NEXT token as its file; a
+        # joined form (`2>/dev/null`, `>>log`) carries its own.
+        if [[ $quoted == u && $tok =~ ^${REDIR}$ ]]; then
+          skip_next=1
+          continue
+        fi
+        [[ $quoted == u && $tok =~ ^${REDIR} ]] && continue
+        # A leading `-` is an OPTION only while rm is still scanning options.
+        # BSD rm (macOS -- this hook's actual deployment target) does not permute:
+        # once a filename has been seen, a later `-`-prefixed argument is a
+        # literal path. Verified by creating a file named `-importantfile` and
+        # running the real rm: `rm -rf .venv -importantfile` deleted BOTH. GNU rm
+        # would reject it as an invalid option, so treating it as a target is the
+        # safe reading on either platform -- a non-disposable target denies, and
+        # an invalid option was never going to delete anything anyway.
+        [[ $end_of_opts -eq 0 && $seen_operand -eq 0 && $tok == -* ]] && continue
+        if [[ -n $tok ]]; then
+          seen_operand=1
+          printf '%s\0' "$tok"
+        fi
+      done < <(printf '%s' "${cand#rm }" | awk "$TOKENISE")
+    done < <(rm_candidates "$seg")
   done < <(printf '%s' "$cmd" | awk "$SEGMENT")
   set +f
 }
