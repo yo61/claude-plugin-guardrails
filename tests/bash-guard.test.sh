@@ -687,5 +687,20 @@ expect BLOCK "echo \"\$(printf %s \")\"; rm -rf ~/important-project)\"; rm -rf n
 expect BLOCK "echo \"\$(echo \$(true); rm -rf ~/important-project)\"; rm -rf node_modules"
 expect ALLOW "echo \"\$(echo \$(true); rm -rf node_modules)\""
 
+# A BRACE GROUP IS A COMMAND POSITION, like a subshell. `{` was not one, so an
+# `rm` opening a group matched no rule at all -- neither the deny nor the ask --
+# and the deletion ran. The subshell spelling of the same thing was caught,
+# which is what made the omission visible.
+expect BLOCK '{ rm -rf ~/important-project; }'
+expect BLOCK '{ rm -rf ~/important-project; }; rm -rf node_modules'
+expect BLOCK '{ cd /tmp && rm -rf ~/important-project; }'
+# ...and the exemption reaches into one, as it does into a subshell.
+expect ALLOW '{ rm -rf node_modules; }'
+expect ALLOW '{ rm -rf .venv; } && rm -rf node_modules'
+# A brace that is not opening a group is not a command position: `{}` is find's
+# placeholder, and a parameter expansion is not a command either.
+expect ALLOW 'fd -e pyc -x trash {}'
+expect ALLOW 'echo "${HOME}"'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

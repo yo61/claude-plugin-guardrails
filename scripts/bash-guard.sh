@@ -29,7 +29,13 @@ set -euo pipefail
 # trip a rule, which is what makes it possible to write documentation about
 # these patterns without fighting the guard. The cost is that `/bin/grep -r` and
 # `if which foo` are missed; precision is worth more than that coverage.
-readonly BOUNDARY='(^|[;|&(`]|\$\()[[:space:]]*'
+# A brace group is a command position too. It was missing, so `{ rm -rf
+# ~/project; }` matched no rule at all -- neither the deny nor the ask -- while
+# the subshell spelling of the same thing was caught. `{` only opens a group
+# when a command follows it, and the trailing `[[:space:]]*` is what keeps a
+# parameter expansion out: `${HOME}` has no space and no command after the
+# brace, and `{}` as find's placeholder is an argument rather than a position.
+readonly BOUNDARY='(^|[;|&(`{]|\$\()[[:space:]]*'
 # Common runner prefixes, so `npx eslint` is caught as readily as bare `eslint`.
 readonly RUNNER='((npx|uvx|pnpm|yarn|bunx)[[:space:]]+(exec[[:space:]]+)?|python3?[[:space:]]+-m[[:space:]]+)?'
 # Zero or more whitespace-separated argument tokens belonging to ONE command.
@@ -583,6 +589,7 @@ rm_targets() {
     while IFS= read -r -d '' cand; do
       cand=${cand#"${cand%%[![:space:]]*}"} # ltrim
       cand=${cand#(}                        # a leading `(` from a subshell
+      cand=${cand#\{}                       # ...or `{` from a brace group
       cand=${cand#"${cand%%[![:space:]]*}"}
       [[ $cand == rm[[:space:]]* ]] || continue
       # Only invocations the RULE governs, i.e. recursive-force ones. Collecting
