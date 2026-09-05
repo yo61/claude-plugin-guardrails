@@ -332,7 +332,8 @@ END {
 }'
 
 # Every command a segment could be running, NUL-separated: the segment itself,
-# then the body of each command substitution inside it, outermost first.
+# then the body of each substitution inside it -- command or process,
+# outermost first.
 #
 # Stripping only the OUTERMOST `$(` was a fail-open. The remainder of
 # `echo "$(echo $(rm -rf ~/project))"` does not begin with `rm `, so that
@@ -347,11 +348,18 @@ END {
 # truncates that candidate early, leaving an unterminated quote and a target
 # that cannot be judged disposable -- the safe direction.
 rm_candidates() {
-  local seg=$1 rest
+  local seg=$1 rest opener='$('
   printf '%s\0' "$seg"
-  rest=$seg
-  while [[ $rest == *'$('* ]]; do
-    rest=${rest#*'$('}
+  # PROCESS substitution runs a command too. `<(...)` and `>(...)` are executed
+  # for their side effects whether or not anything reads the descriptor --
+  # confirmed with `zsh -c ": <(touch marker)"`, which creates the file. They
+  # are normalised to the same opener rather than scanned for separately: what
+  # matters here is only where a command starts, and all three spellings start
+  # one.
+  rest=${seg//'<('/"$opener"}
+  rest=${rest//'>('/"$opener"}
+  while [[ $rest == *"$opener"* ]]; do
+    rest=${rest#*"$opener"}
     printf '%s\0' "${rest%%)*}"
   done
 }

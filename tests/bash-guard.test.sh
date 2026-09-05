@@ -490,5 +490,17 @@ expect BLOCK 'rm -rf node_modules; echo "$(echo $(rm -rf ~/important-project))"'
 expect ALLOW 'echo "$(echo $(rm -rf node_modules))"; rm -rf .venv'
 expect ALLOW 'echo "$(echo $(rm -rf /tmp/scratch))"'
 
+# PROCESS substitution runs its command as well, so an `rm` hidden in one is
+# still an `rm`. Scanning only `$(` left it contributing no target at all, and
+# any disposable cleanup elsewhere then made the whole command look disposable
+# -- while the hidden deletion ran unrecoverably.
+expect BLOCK 'diff <(rm -rf ~/important-project) /dev/null; rm -rf node_modules'
+expect BLOCK 'tee >(rm -rf ~/important-project) < /dev/null; rm -rf .venv'
+expect BLOCK 'diff <(rm -rf ~/important-project) /dev/null'
+expect BLOCK 'diff <(echo $(rm -rf ~/important-project)) /dev/null; rm -rf node_modules'
+# ...and a disposable target inside one is still disposable.
+expect ALLOW 'diff <(rm -rf node_modules) /dev/null; rm -rf .venv'
+expect ALLOW 'tee >(rm -rf /tmp/scratch) < /dev/null'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
