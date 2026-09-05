@@ -635,6 +635,31 @@ expect ALLOW "echo '${BT}rm -rf ~/important-project${BT}'"
 expect BLOCK 'echo `echo \`rm -rf ~/important-project\``'
 expect BLOCK 'echo $(echo `rm -rf ~/important-project`)'
 expect ALLOW 'echo `echo \`rm -rf node_modules\``'
+# A COMMENT INSIDE A BACKTICK ENDS AT THE BACKTICK, not at the newline. A
+# backtick span is found by scanning for its closing mark, so the comment
+# cannot reach past it -- and what follows the span is another command,
+# which runs. Skipping to the newline swallowed the closing backtick, the
+# separator and the deletion chained after it, leaving one truncated
+# segment and no target to judge.
+expect BLOCK 'echo `rm -rf .venv # cleanup`; rm -rf ~/important-project'
+expect BLOCK 'echo `rm -rf .venv # cleanup` && rm -rf ~/important-project'
+expect BLOCK 'echo `rm -rf ~/important-project # note`'
+expect ALLOW 'echo `rm -rf .venv # cleanup`'
+expect ALLOW 'echo `rm -rf .venv # cleanup`; rm -rf node_modules'
+# The span is found by its CLOSING mark, and an escaped backtick is not one
+# -- it is how the inner span opens. Ending the outer span at it drops back
+# to top level mid-command, where the comment then runs to the newline and
+# swallows the deletion chained after the whole thing.
+expect BLOCK 'echo `echo \`rm -rf .venv # x\``; rm -rf ~/important-project'
+# ...and the span RESTORES the quoting it interrupted. Left at the state the
+# span set, the apostrophe in `it's` after it opens a literal that runs to
+# the end of the command, hiding the substitution behind it.
+expect BLOCK "echo \"${BT}echo hi${BT} it's \$(rm -rf ~/important-project)\""
+# ...and single-quoted text inside a backtick is still text. The backtick
+# starts its quoting over, so the quote opens there rather than being an
+# apostrophe inside the outer double quotes; judged with the outer state,
+# an inert string was read as a live substitution and blocked.
+expect ALLOW "echo \"${BT}echo '\$(rm -rf ~/important-project)'${BT}\""
 
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

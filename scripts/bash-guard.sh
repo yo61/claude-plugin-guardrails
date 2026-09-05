@@ -174,7 +174,7 @@ BEGIN {
 }
 { buf = buf (NR > 1 ? "\n" : "") $0 }
 END {
-  n = length(buf); out = ""; dq = 0; depth = 0
+  n = length(buf); out = ""; dq = 0; depth = 0; btopen = 0; btdq = 0
   for (i = 1; i <= n; i++) {
     c = substr(buf, i, 1)
     if (c == BS) {
@@ -189,6 +189,16 @@ END {
     }
     if (c == SQ && dq == 0) {
       while (++i <= n) { if (substr(buf, i, 1) == SQ) break }
+      continue
+    }
+    if (c == BT) {
+      # A backtick starts its quoting over, exactly as `$(` does below. Left
+      # with the enclosing state, a single quote opening inside a backtick
+      # nested in double quotes was read as an apostrophe, so the literal it
+      # opens was never stripped and the inert text inside it was judged as a
+      # live command.
+      if (btopen) { dq = btdq; btopen = 0 } else { btdq = dq; dq = 0; btopen = 1 }
+      out = out c
       continue
     }
     if (c == DQ) { dq = 1 - dq; out = out c; continue }
@@ -274,7 +284,10 @@ readonly REDIR='([0-9]*(>>|>\||>|<)|&>>|&>|[0-9]*(>&|<&))'
 # from becoming a bypass. `$(echo a # note` NEWLINE `rm -rf ~/project)` really
 # does run the deletion, and the line after the comment is scanned normally.
 readonly SEGMENT='
-BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+BEGIN {
+  SQ = sprintf("%c", 39); DQ = sprintf("%c", 34)
+  BS = sprintf("%c", 92); BT = sprintf("%c", 96)
+}
 { buf = buf (NR > 1 ? "\n" : "") $0 }
 END {
   n = length(buf); seg = ""; word = 1
@@ -300,6 +313,24 @@ END {
         if (c == BS && i < n) { seg = seg c substr(buf, ++i, 1); continue }
         seg = seg c
         if (c == DQ) break
+      }
+      word = 0
+      continue
+    }
+    if (c == BT) {
+      # A BACKTICK SPAN IS FOUND BY ITS CLOSING MARK, so a comment inside one
+      # ends there and cannot reach the newline. Scanning on regardless
+      # swallowed the closing backtick, the separator after it and the command
+      # that separator introduced -- `echo ${BT}rm -rf .venv # cleanup${BT}; rm -rf
+      # ~/project` collapsed to a single truncated segment, and the deletion
+      # chained after it was never judged. The body is walked separately, so
+      # nothing inside is lost by copying the span whole here.
+      seg = seg c
+      while (++i <= n) {
+        c = substr(buf, i, 1)
+        if (c == BS && i < n) { seg = seg c substr(buf, ++i, 1); continue }
+        seg = seg c
+        if (c == BT) break
       }
       word = 0
       continue
