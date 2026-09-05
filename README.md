@@ -83,7 +83,7 @@ tool for that, which is the better route anyway.
 ## Tests
 
 ```bash
-GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 280 cases
+GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 283 cases
 ```
 
 `GUARD` defaults to the installed hook at `~/.claude/hooks/bash-guard.sh`, so

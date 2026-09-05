@@ -302,6 +302,14 @@ mapfile -t arr < file
 find . -name "*.py"
 EOF'
 expect ALLOW "bash -c 'mapfile -t arr < file'"
+# A SHEBANG INSIDE SINGLE QUOTES IS TEXT, not a statement that the command is
+# bash source. The tool-choice rules already stripped quotes before this gate;
+# the zsh rules did not, so a quoted shebang sitting anywhere in the command
+# switched them off for the whole of it -- and the zero-index bug they exist to
+# catch fails silently with a wrong answer.
+expect BLOCK "echo '#!/usr/bin/env bash'; echo \"\${arr[0]}\""
+expect BLOCK "grep -F '#!/bin/bash' f; echo \"\${arr[0]}\""
+expect BLOCK "echo 'bash -c foo'; echo \"\${arr[0]}\""
 
 echo "--- git push to main/master: prompt, never silent ---"
 expect ASK 'git push origin main'

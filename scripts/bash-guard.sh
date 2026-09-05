@@ -664,7 +664,17 @@ tool_choice_clause_rules() {
 }
 
 check_zsh_portability() {
-  subject=$cmd
+  # SINGLE-QUOTED TEXT IS NOT A STATEMENT ABOUT THE COMMAND, and this gate is
+  # the strongest exemption the guard has -- a shebang switches the zsh rules
+  # off for everything. Read raw, `echo '#!/usr/bin/env bash'` counted as one,
+  # so a quoted shebang anywhere silenced the rules for the whole command and
+  # `echo "${arr[0]}"` beside it went unreported. That is the failure this rule
+  # exists to catch: the zero index is empty in zsh, so the command succeeds
+  # with the wrong answer and says nothing.
+  #
+  # `check_tool_choice` strips first for the same reason. Both gates now agree
+  # on what counts as bash source.
+  subject=$(printf '%s' "$cmd" | awk "$STRIP_SQ")
 
   if targets_real_bash; then
     return 0
