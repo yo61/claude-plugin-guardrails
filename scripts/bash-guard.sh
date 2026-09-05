@@ -467,10 +467,39 @@ END {
       continue
     }
     if ((c == "$" || c == "<" || c == ">") && i < n && substr(buf, i + 1, 1) == "(") {
+      # A `)` INSIDE QUOTES IS DATA, and one that opens a group has its own
+      # close. Ending the body at the first `)` regardless cut it short, so a
+      # deletion later in the SAME substitution was never extracted:
+      # `$(printf DQ)DQ; rm -rf ~/project)` yielded the body `printf ` and no
+      # target at all. Alone that still denied -- an unparsable command is
+      # protected -- but an ordinary cleanup beside it then supplied the only
+      # target found, and its disposable name exempted the pair.
       body = ""
+      depth = 1
       for (j = i + 2; j <= n; j++) {
         ch = substr(buf, j, 1)
-        if (ch == ")") break
+        if (ch == BS && j < n) { body = body ch substr(buf, ++j, 1); continue }
+        if (ch == SQ) {
+          body = body ch
+          while (++j <= n) { ch = substr(buf, j, 1); body = body ch; if (ch == SQ) break }
+          continue
+        }
+        if (ch == DQ) {
+          body = body ch
+          while (++j <= n) {
+            ch = substr(buf, j, 1)
+            if (ch == BS && j < n) { body = body ch substr(buf, ++j, 1); continue }
+            body = body ch
+            if (ch == DQ) break
+          }
+          continue
+        }
+        if (ch == "(") { depth++; body = body ch; continue }
+        if (ch == ")") {
+          if (--depth == 0) break
+          body = body ch
+          continue
+        }
         body = body ch
       }
       printf "%s%c", body, 0

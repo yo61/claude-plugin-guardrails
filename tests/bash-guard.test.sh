@@ -661,5 +661,31 @@ expect BLOCK "echo \"${BT}echo hi${BT} it's \$(rm -rf ~/important-project)\""
 # an inert string was read as a live substitution and blocked.
 expect ALLOW "echo \"${BT}echo '\$(rm -rf ~/important-project)'${BT}\""
 
+# A `)` INSIDE QUOTES IS DATA, not the end of the substitution. The body was
+# closed at the first one regardless, so everything after it in the same
+# substitution -- including a protected deletion that really does run -- was
+# never extracted. Alone that still denied, because an unparsable command has
+# no target and unknown means protected; beside an ordinary cleanup, the
+# cleanup's disposable target was the only one found and it exempted the pair.
+expect BLOCK "echo \"\$(printf '\\)'; rm -rf ~/important-project)\"; rm -rf node_modules"
+expect BLOCK "echo \"\$(printf '\\)'; rm -rf ~/important-project)\""
+expect BLOCK "echo \"\$(printf '%s' ')'; rm -rf ~/important-project)\"; rm -rf node_modules"
+# An ESCAPED quote is not an open span, so it protects no `)`. The shell
+# closes this substitution at the paren right after it -- `printf DQ` is the
+# whole body -- and the deletion after that is text inside the outer quotes,
+# echoed rather than run. Verified with `set -x`: only the node_modules
+# cleanup executes, so allowing this is correct rather than a miss.
+expect ALLOW "echo \"\$(printf \\\")\\\"; rm -rf ~/important-project)\"; rm -rf node_modules"
+# ...and a disposable one behind the same quoted paren is still exempt.
+expect ALLOW "echo \"\$(printf '\\)'; rm -rf node_modules)\""
+# ...and a `)` inside DOUBLE quotes in the body is data too. Unlike the
+# escaped-quote case above, this one really does open a span, so the shell
+# reads on past the paren and the deletion after it runs inside the
+# substitution -- confirmed with `set -x`.
+expect BLOCK "echo \"\$(printf %s \")\"; rm -rf ~/important-project)\"; rm -rf node_modules"
+# Nested parens close in order, so the body runs to the MATCHING one.
+expect BLOCK "echo \"\$(echo \$(true); rm -rf ~/important-project)\"; rm -rf node_modules"
+expect ALLOW "echo \"\$(echo \$(true); rm -rf node_modules)\""
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
