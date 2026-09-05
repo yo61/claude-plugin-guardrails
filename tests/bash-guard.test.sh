@@ -537,5 +537,18 @@ expect BLOCK "echo \"\$(rm -rf ~/important-project)\"; rm -rf node_modules"
 # mistaking it swallows the rest of the command and hides what follows.
 expect ALLOW "echo \"it's \$(rm -rf node_modules)\"; rm -rf .venv"
 
+# A SUBSTITUTION STARTS ITS QUOTING OVER. Inside double quotes a single quote
+# is just an apostrophe -- but inside a substitution within those quotes it
+# opens a literal again, and the shell reads it that way. Carrying the outer
+# state in made an argument to echo look like a deletion.
+expect ALLOW "echo \"\$(echo '\$(rm -rf ~/important-project)')\""
+expect ALLOW "echo \"\$(echo '\$(rm -rf ~/important-project)')\"; rm -rf node_modules"
+expect ALLOW "printf %s \"\$(printf %s '\$(rm -rf ~/important-project)')\""
+# ...while a genuine deletion at that same depth is still caught.
+expect BLOCK "echo \"\$(echo \$(rm -rf ~/important-project))\"; rm -rf node_modules"
+expect BLOCK "echo \"\$(true; rm -rf ~/important-project)\"; rm -rf node_modules"
+# ...and a disposable one inside a substitution stays allowed.
+expect ALLOW "echo \"\$(cd /tmp && rm -rf /tmp/scratch)\""
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

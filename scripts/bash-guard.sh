@@ -149,6 +149,13 @@ readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 
 # The command with single-quoted spans removed.
 #
+# A substitution starts its quoting over, which is why this tracks a stack of
+# states rather than a single flag. Inside double quotes a single quote is just
+# an apostrophe -- but inside a substitution WITHIN those quotes, it opens a
+# literal again, and the shell reads it that way. Treating the outer state as
+# continuous left `"$(echo '"'"'$(rm -rf ~/project)'"'"')"` looking like a
+# deletion when it is an argument to echo.
+#
 # Evidence of bash source is a variable REFERENCE, and quoting is what makes
 # something not one. Single quotes are the obvious case -- no shell expands
 # `${BASH_SOURCE[0]}` written inside them -- and a BACKSLASH is the other: an
@@ -164,25 +171,27 @@ readonly STRIP_SQ='
 BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
 { buf = buf (NR > 1 ? "\n" : "") $0 }
 END {
-  n = length(buf); out = ""
+  n = length(buf); out = ""; dq = 0; depth = 0
   for (i = 1; i <= n; i++) {
     c = substr(buf, i, 1)
-    if (c == BS) {
-      i++
-      continue
-    }
-    if (c == SQ) {
+    if (c == BS) { i++; continue }
+    if (c == SQ && dq == 0) {
       while (++i <= n) { if (substr(buf, i, 1) == SQ) break }
       continue
     }
-    if (c == DQ) {
+    if (c == DQ) { dq = 1 - dq; out = out c; continue }
+    if ((c == "$" || c == "<" || c == ">") && i < n && substr(buf, i + 1, 1) == "(") {
+      stack[depth] = dq
+      depth++
+      dq = 0
+      out = out c substr(buf, i + 1, 1)
+      i++
+      continue
+    }
+    if (c == ")" && depth > 0) {
+      depth--
+      dq = stack[depth]
       out = out c
-      while (++i <= n) {
-        c = substr(buf, i, 1)
-        if (c == BS && i < n) { i++; continue }
-        out = out c
-        if (c == DQ) break
-      }
       continue
     }
     out = out c
@@ -344,6 +353,13 @@ END {
 # quotes are NOT -- substitution does happen inside them -- so the scan
 # continues through them and only tracks whether it is inside a pair, since a
 # single quote in there is just an apostrophe.
+#
+# One level only. Each body is emitted whole and then stepped over, because the
+# quote state inside a substitution is its own: the shell starts parsing it
+# fresh. Descending into it from here carried the outer state in, so
+# `"$(echo '$(rm -rf ~/project)')"` looked like an executable deletion when it
+# is an argument to echo. The caller feeds every body back through this scanner
+# to find what is nested inside it, which starts that state over.
 readonly SUBST_BODIES='
 BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
 { buf = buf (NR > 1 ? "\n" : "") $0 }
@@ -365,7 +381,13 @@ END {
         body = body ch
       }
       printf "%s%c", body, 0
-      i++
+      # Resume AFTER the body, not inside it. A substitution is parsed with its
+      # own quote state, and carrying this scan into the body applied the outer
+      # one: inside `"$( ... )"` the scan still believed it was in double
+      # quotes, so a single quote in there was read as an apostrophe and the
+      # literal it opened was treated as executable. The caller re-scans each
+      # body from scratch, which is what gives it fresh state.
+      i = j
       continue
     }
   }
@@ -388,24 +410,31 @@ END {
 # truncates that candidate early, leaving an unterminated quote and a target
 # that cannot be judged disposable -- the safe direction.
 rm_candidates() {
-  local seg=$1 body sub
-  printf '%s\0' "$seg"
-  # PROCESS substitution runs a command too. `<(...)` and `>(...)` are executed
-  # for their side effects whether or not anything reads the descriptor --
-  # confirmed with `zsh -c ": <(touch marker)"`, which creates the file -- so
-  # the scanner treats all three openers alike.
-  while IFS= read -r -d '' sub; do
-    # A substitution body is a COMMAND LIST, not a single command, so it is
-    # split again the same way the whole command was. Emitted whole, a body
-    # whose first word is not `rm` -- `$(true; rm -rf ~/project)` -- matched
-    # nothing and contributed no target at all. Alone that failed safe, since no
-    # targets anywhere means unjudgeable; but the disposable check is scored
-    # across the whole command, so one ordinary cleanup beside it supplied the
-    # target that passed, and the hidden deletion was never examined.
-    while IFS= read -r -d '' body; do
-      printf '%s\0' "$body"
-    done < <(printf '%s' "$sub" | awk "$SEGMENT")
-  done < <(printf '%s' "$seg" | awk "$SUBST_BODIES")
+  local seg=$1 item clause body
+  local -a queue=("$seg")
+  local i=0
+
+  # A WORKLIST, not a single pass. Each item is split into its own commands,
+  # every one of those is emitted as a candidate, and the body of every
+  # substitution inside it joins the queue to be handled the same way.
+  #
+  # Two things fall out of that. A body is re-scanned from scratch, which gives
+  # it the fresh quote state the shell gives it -- carrying the outer state in
+  # made `"$(echo '$(rm -rf ~/project)')"` look like an executable deletion
+  # when it is an argument to echo. And a body that is a command LIST is split
+  # like any other: emitted whole, `$(true; rm -rf ~/project)` does not begin
+  # with `rm` and contributed no target at all, while an ordinary cleanup
+  # elsewhere supplied one that passed.
+  while [[ $i -lt ${#queue[@]} ]]; do
+    item=${queue[$i]}
+    i=$((i + 1))
+    while IFS= read -r -d '' clause; do
+      printf '%s\0' "$clause"
+      while IFS= read -r -d '' body; do
+        queue+=("$body")
+      done < <(printf '%s' "$clause" | awk "$SUBST_BODIES")
+    done < <(printf '%s' "$item" | awk "$SEGMENT")
+  done
 }
 
 # The paths EVERY `rm` in the command would delete, one per line, flags dropped.
