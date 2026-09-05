@@ -515,5 +515,16 @@ expect BLOCK 'echo "$(true; rm -rf ~/important-project)"'
 expect ALLOW 'rm -rf node_modules; echo "$(true; rm -rf .venv)"'
 expect ALLOW 'echo "$(cd /tmp && rm -rf /tmp/scratch)"'
 
+# An ESCAPED dollar prints literally, even inside double quotes, so it names
+# the spelling without referencing anything. Treating it as evidence excused
+# every rule in the clause -- including the zero-index bug beside it.
+expect BLOCK "echo \"\\\${BASH_SOURCE[0]}\" \"\${arr[0]}\""
+expect BLOCK "printf %s \"\\\${BASH_LINENO[0]}\"; pip install requests"
+# ...and escaped OUTSIDE quotes too, which is a separate branch of the scanner:
+# mutating only the in-quotes one left this uncovered.
+expect BLOCK "echo \\\$BASH_SOURCE \"\${arr[0]}\""
+# ...while an unescaped one still is a reference.
+expect ALLOW "printf %s \"\${BASH_SOURCE[0]}\""
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

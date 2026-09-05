@@ -149,9 +149,14 @@ readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 
 # The command with single-quoted spans removed.
 #
-# Evidence of bash source is a variable REFERENCE, and single quotes are what
-# makes something not one: no shell expands `${BASH_SOURCE[0]}` written inside
-# them. Scanning the raw text counted such a literal as evidence, so
+# Evidence of bash source is a variable REFERENCE, and quoting is what makes
+# something not one. Single quotes are the obvious case -- no shell expands
+# `${BASH_SOURCE[0]}` written inside them -- and a BACKSLASH is the other: an
+# escaped dollar prints literally even inside double quotes, so
+# `echo "\${BASH_SOURCE[0]}"` names the spelling without referencing anything.
+# Escaped characters are dropped rather than copied for that reason: nothing
+# following a backslash can begin a reference, so keeping it only creates
+# false evidence. Scanning the raw text counted such a literal as evidence, so
 # `grep -n '${BASH_SOURCE[0]}' script.sh; echo "${arr[0]}"` switched off every
 # zsh rule and let the real mistake beside it through. Double-quoted spans are
 # kept, because there the reference does expand and the subject really is bash.
@@ -163,8 +168,7 @@ END {
   for (i = 1; i <= n; i++) {
     c = substr(buf, i, 1)
     if (c == BS) {
-      out = out c
-      if (++i <= n) { out = out substr(buf, i, 1) }
+      i++
       continue
     }
     if (c == SQ) {
@@ -175,7 +179,7 @@ END {
       out = out c
       while (++i <= n) {
         c = substr(buf, i, 1)
-        if (c == BS && i < n) { out = out c substr(buf, ++i, 1); continue }
+        if (c == BS && i < n) { i++; continue }
         out = out c
         if (c == DQ) break
       }
