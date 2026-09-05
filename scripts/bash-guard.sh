@@ -102,7 +102,7 @@ targets_real_bash() {
     || matches "${BOUNDARY}bash[[:space:]]+(-[cs]|<)"
 }
 
-# Run the rules that a bash-authoring context exempts, ONE CLAUSE AT A TIME.
+# Run the per-clause rules, ONE CLAUSE AT A TIME.
 #
 # Scope, not just strength. Two earlier fixes narrowed what counts as evidence
 # -- a reference rather than a mention, unquoted rather than quoted -- and both
@@ -120,7 +120,6 @@ for_each_clause() {
   while IFS= read -r -d '' clause; do
     [[ -n ${clause//[[:space:]]/} ]] || continue
     subject=$clause
-    bash_variable_reference && continue
     "$@"
   done < <(printf '%s' "$cmd" | awk "$SEGMENT")
 }
@@ -551,6 +550,18 @@ check_zsh_portability() {
 }
 
 zsh_portability_clause_rules() {
+  # THIS is what a bash variable reference excuses: bash-only syntax means the
+  # clause targets another interpreter, so zsh's array indexing and missing
+  # builtins do not apply to it.
+  #
+  # It does not excuse the tool-choice rules, and applying it to them was a
+  # regression. pip-vs-uv, black-vs-ruff, eslint-vs-oxlint, find-vs-fd and
+  # pre-commit-vs-prek are preferences about the program the Bash tool is about
+  # to run; whether one of its ARGUMENTS happens to mention `${BASH_SOURCE[0]}`
+  # has nothing to do with it. `pip install "$(dirname "${BASH_SOURCE[0]}")/r.txt"`
+  # was denied before this branch and allowed after it.
+  bash_variable_reference && return 0
+
   rule "${BOUNDARY}(mapfile|readarray)([[:space:]]|$)" \
     'The Bash tool runs zsh, where `mapfile`/`readarray` do not exist (command not found). Use `while IFS= read -r line; do ... done < file`, or run the script under `bash -c`.'
 

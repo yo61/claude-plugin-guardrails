@@ -465,5 +465,18 @@ expect ALLOW 'echo "$(rm -rf .venv)"'
 expect BLOCK 'x=$(rm -rf ~/important-project)'
 expect BLOCK 'LOG=$(rm -rf .venv ~/important-project)'
 
+# A bash variable reference excuses the ZSH rules for its clause -- zsh array
+# indexing does not apply to text meant for bash -- and nothing else. The
+# tool-choice preferences are about the program being run, not about whether an
+# argument mentions a bash variable.
+expect BLOCK "pip install \"\${BASH_SOURCE[0]}\""
+expect BLOCK "eslint \"\${BASH_SOURCE[0]}\""
+expect BLOCK "black \"\${BASH_SOURCE[0]}\""
+expect BLOCK "find \"\${BASH_SOURCE[0]}\" -name '*.py'"
+expect BLOCK "pre-commit run --all-files \"\${BASH_SOURCE[0]}\""
+# ...while the zsh rules stay excused in that same clause.
+expect ALLOW "mapfile -t x < \"\${BASH_SOURCE[0]}\""
+expect ALLOW "printf %s \"\${parts[0]}\" \"\${BASH_SOURCE[0]}\""
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
