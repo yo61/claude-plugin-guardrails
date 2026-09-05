@@ -13,6 +13,15 @@ GUARD="${GUARD:-$HOME/.claude/hooks/bash-guard.sh}"
 # while CI passes an absolute one -- so a relative GUARD broke the local hook
 # while CI stayed green.
 GUARD=$(cd "$(dirname "$GUARD")" && printf '%s/%s' "$PWD" "$(basename "$GUARD")")
+
+# A CASE IS TEXT, and must not be syntax. Backticks inside a double-quoted
+# case are real substitution: the suite ran the deletion it meant to pass to
+# the guard as a string. Single-quoted cases are inert and say what they mean,
+# but a case containing single quotes cannot use them -- so it spells the
+# backtick through this, which the shell expands after it has finished
+# looking for commands to run. shfmt rewriting one such case to $() is what
+# surfaced it; it was parsing them as syntax, correctly.
+BT='`'
 pass=0
 fail=0
 
@@ -604,6 +613,28 @@ expect BLOCK "rm -rf ~/important#project"
 expect BLOCK "rm -rf \"~/important \"#project"
 # A comment inside quotes is text.
 expect BLOCK "rm -rf \"~/important-project # not a comment\""
+
+# BACKTICKS ARE COMMAND SUBSTITUTION TOO. Only `$(`, `<(` and `>(` were treated
+# as one, and `rm` behind a backtick sits at no command position the rules
+# recognise, so nothing fired at all -- neither the deny nor the ask. The other
+# standard POSIX form was a silent way past the whole guard.
+expect BLOCK 'echo `rm -rf ~/important-project`'
+expect BLOCK 'other=`rm -rf ~/important-project`'
+expect BLOCK 'echo "`rm -rf ~/important-project`"'
+expect BLOCK 'echo `true; rm -rf ~/important-project`'
+expect BLOCK '`rm -rf ~/important-project`'
+# ...and the exemption reaches into one, as it does into `$()`.
+expect ALLOW 'echo `rm -rf node_modules`'
+expect ALLOW 'echo `cd /tmp && rm -rf /tmp/scratch`'
+# ...while single-quoted text stays text at any depth.
+expect ALLOW "echo '${BT}rm -rf ~/important-project${BT}'"
+# A backtick NESTS by being escaped, and after one level it is a backtick.
+# Dropping the escape with it erased the command position in front of the
+# inner deletion, so a nested one ran unreported while the same command
+# spelt with $() was caught.
+expect BLOCK 'echo `echo \`rm -rf ~/important-project\``'
+expect BLOCK 'echo $(echo `rm -rf ~/important-project`)'
+expect ALLOW 'echo `echo \`rm -rf node_modules\``'
 
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

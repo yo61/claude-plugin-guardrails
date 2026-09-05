@@ -29,7 +29,7 @@ set -euo pipefail
 # trip a rule, which is what makes it possible to write documentation about
 # these patterns without fighting the guard. The cost is that `/bin/grep -r` and
 # `if which foo` are missed; precision is worth more than that coverage.
-readonly BOUNDARY='(^|[;|&(]|\$\()[[:space:]]*'
+readonly BOUNDARY='(^|[;|&(`]|\$\()[[:space:]]*'
 # Common runner prefixes, so `npx eslint` is caught as readily as bare `eslint`.
 readonly RUNNER='((npx|uvx|pnpm|yarn|bunx)[[:space:]]+(exec[[:space:]]+)?|python3?[[:space:]]+-m[[:space:]]+)?'
 # Zero or more whitespace-separated argument tokens belonging to ONE command.
@@ -168,13 +168,25 @@ readonly DISPOSABLE="(^|/)${DISPOSABLE_NAMES}(/|\$)|${DISPOSABLE_ABS}"
 # zsh rule and let the real mistake beside it through. Double-quoted spans are
 # kept, because there the reference does expand and the subject really is bash.
 readonly STRIP_SQ='
-BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+BEGIN {
+  SQ = sprintf("%c", 39); DQ = sprintf("%c", 34)
+  BS = sprintf("%c", 92); BT = sprintf("%c", 96)
+}
 { buf = buf (NR > 1 ? "\n" : "") $0 }
 END {
   n = length(buf); out = ""; dq = 0; depth = 0
   for (i = 1; i <= n; i++) {
     c = substr(buf, i, 1)
-    if (c == BS) { i++; continue }
+    if (c == BS) {
+      # An escaped backtick is how a backtick NESTS, and after one level of
+      # substitution it IS a backtick. Dropping it with its backslash erased
+      # the command position in front of the inner `rm`, so the rule matched
+      # nothing and a nested deletion ran unreported. Every other escape keeps
+      # being dropped, so `\$` is still not read as an expansion.
+      if (i < n && substr(buf, i + 1, 1) == BT) { out = out BT; i++; continue }
+      i++
+      continue
+    }
     if (c == SQ && dq == 0) {
       while (++i <= n) { if (substr(buf, i, 1) == SQ) break }
       continue
@@ -384,8 +396,18 @@ END {
 # `"$(echo '$(rm -rf ~/project)')"` looked like an executable deletion when it
 # is an argument to echo. The caller feeds every body back through this scanner
 # to find what is nested inside it, which starts that state over.
+# BACKTICKS ARE THE OTHER STANDARD SUBSTITUTION FORM, and were invisible here.
+# Only `$(`, `<(` and `>(` were walked, and `rm` behind a backtick sat at no
+# command position BOUNDARY recognised either, so `echo `rm -rf ~/project``
+# drew neither a deny nor an ask -- a silent way past the whole guard, in the
+# syntax this machinery exists to close. Both halves are needed: BOUNDARY so
+# the rule fires at all, and the walk below so a disposable target inside a
+# backtick still earns its exemption.
 readonly SUBST_BODIES='
-BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
+BEGIN {
+  SQ = sprintf("%c", 39); DQ = sprintf("%c", 34)
+  BS = sprintf("%c", 92); BT = sprintf("%c", 96)
+}
 { buf = buf (NR > 1 ? "\n" : "") $0 }
 END {
   n = length(buf); dq = 0
@@ -395,6 +417,22 @@ END {
     if (c == DQ) { dq = 1 - dq; continue }
     if (c == SQ && dq == 0) {
       while (++i <= n) { if (substr(buf, i, 1) == SQ) break }
+      continue
+    }
+    if (c == BT) {
+      body = ""
+      for (j = i + 1; j <= n; j++) {
+        ch = substr(buf, j, 1)
+        # Inside backticks a backslash escapes the next character, and it is
+        # how a backtick is nested. Dropping the backslash un-nests it: the
+        # outer body then holds a plain inner pair, which the caller re-scans
+        # and walks in turn.
+        if (ch == BS && j < n) { j++; body = body substr(buf, j, 1); continue }
+        if (ch == BT) break
+        body = body ch
+      }
+      printf "%s%c", body, 0
+      i = j
       continue
     }
     if ((c == "$" || c == "<" || c == ">") && i < n && substr(buf, i + 1, 1) == "(") {
