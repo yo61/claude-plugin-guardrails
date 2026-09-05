@@ -130,6 +130,19 @@ for_each_clause() {
   done < <(printf '%s' "$cmd" | awk "$SEGMENT")
 }
 
+# What the `rm` rule governs: a RECURSIVE removal, in any spelling. `-f` only
+# suppresses the prompt, so it is not what makes a deletion unrecoverable --
+# `rm -r` destroys the tree exactly as `rm -rf` does, and both are covered.
+#
+# A short cluster counts if it carries `r` or `R` anywhere in it, which is what
+# `-rvf` needs; a long option counts only when it IS `--recursive`, so
+# `--preserve-root` is not mistaken for one. BSD rm rejects the long spellings,
+# but GNU rm takes them and these scripts also run on Linux.
+#
+# Defined once because the rule and the target scan must agree: when they did
+# not, the rule fired on invocations whose targets the scan discarded.
+readonly RECURSIVE='(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)'
+
 # Scratch, temp and regenerable trees. `trash` is the wrong tool for these:
 # slow on large trees, and it fills the Trash with rubbish.
 # SEGMENT-ANCHORED, not substring. Bare keywords matched anywhere in the
@@ -592,12 +605,20 @@ rm_targets() {
       cand=${cand#\{}                       # ...or `{` from a brace group
       cand=${cand#"${cand%%[![:space:]]*}"}
       [[ $cand == rm[[:space:]]* ]] || continue
-      # Only invocations the RULE governs, i.e. recursive-force ones. Collecting
-      # from every `rm` let a plain file removal poison the check for a legitimate
-      # cleanup beside it: `rm -f README.md` and `rm -rf node_modules` are each
-      # allowed alone, but together the non-disposable README.md made the pair
-      # deny -- a false block built out of two permitted commands.
-      [[ $cand =~ (^|[[:space:]])-[a-zA-Z]*(rf|fr|Rf|fR)[a-zA-Z]*([[:space:]]|$) ]] || continue
+      # Only invocations the RULE governs. Collecting from every `rm` let a
+      # plain file removal poison the check for a legitimate cleanup beside it:
+      # `rm -f README.md` and `rm -rf node_modules` are each allowed alone, but
+      # together the non-disposable README.md made the pair deny -- a false
+      # block built out of two permitted commands.
+      #
+      # RECURSION is what the rule governs, and it must be the same test the
+      # rule itself uses. Both looked for an ADJACENT `rf` pair, which is one
+      # spelling of it: `rm -r -f`, `rm -R -f` and even `rm -rvf` -- the same
+      # flags with a `v` between them -- matched neither, so the rule never
+      # fired and those targets never joined the pool. A cleanup beside such an
+      # invocation then supplied the only target found, and its disposable name
+      # exempted the deletion next to it.
+      [[ $cand =~ (^|[[:space:]])${RECURSIVE}([[:space:]]|$) ]] || continue
       skip_next=0
       end_of_opts=0
       seen_operand=0
@@ -736,8 +757,8 @@ check_tool_choice() {
     'Use `command -v <cmd>`, not `which`. `which` is an external binary with inconsistent behaviour across systems and a non-POSIX exit status; `command -v` is a POSIX shell builtin, so it is also the correct choice inside scripts and GitHub Actions `run:` blocks.'
 
   if ! all_rm_targets_disposable; then
-    rule "${BOUNDARY}rm[[:space:]]+-[a-zA-Z]*(rf|fr|Rf|fR)[a-zA-Z]*([[:space:]]|$)" \
-      'Use `trash <path>`, not `rm -rf` -- it moves to the macOS Trash and stays recoverable. (Scratch, temp and regenerable trees such as /tmp, node_modules and .venv are exempt and not blocked; `trash` is the wrong tool for those.)'
+    rule "${BOUNDARY}rm[[:space:]]+(-[a-zA-Z]+[[:space:]]+|--[a-z-]+[[:space:]]+)*${RECURSIVE}([[:space:]]|$)" \
+      'Use `trash <path>`, not a recursive `rm` -- it moves to the macOS Trash and stays recoverable. This covers every spelling of the flag (`-rf`, `-r -f`, `--recursive`), and `-f` is not what makes it unrecoverable: `rm -r` deletes the tree just the same. (Scratch, temp and regenerable trees such as /tmp, node_modules and .venv are exempt and not blocked; `trash` is the wrong tool for those.)'
   fi
 
   if targets_real_bash; then

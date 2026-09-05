@@ -702,5 +702,39 @@ expect ALLOW '{ rm -rf .venv; } && rm -rf node_modules'
 expect ALLOW 'fd -e pyc -x trash {}'
 expect ALLOW 'echo "${HOME}"'
 
+# RECURSION IS THE HARM, and `-rf` is only one way to spell it. The governed
+# set was an adjacent `rf` pair, so `-r -f`, `-R -f` and even `-rvf` -- the same
+# flags with a `v` between them -- matched neither the rule nor the target
+# scan. Each deletes a tree exactly as permanently, verified against the real
+# rm; the rule did not fire for them at all, and beside a cleanup their targets
+# were invisible to the pool, so the cleanup's disposable name exempted the
+# deletion next to it.
+expect BLOCK 'rm -r -f ~/important-project'
+expect BLOCK 'rm -f -r ~/important-project'
+expect BLOCK 'rm -R -f ~/important-project'
+expect BLOCK 'rm -rvf ~/important-project'
+expect BLOCK 'rm -rf node_modules; rm -r -f ~/important-project'
+expect BLOCK 'rm -rf node_modules; rm -rvf ~/important-project'
+# Force is not what makes it unrecoverable. `-f` only suppresses the prompt, so
+# a bare `-r` deletes the tree just the same and is governed too.
+expect BLOCK 'rm -r ~/important-project'
+expect BLOCK 'rm -R ~/important-project'
+expect BLOCK 'rm -rf node_modules; rm -r ~/important-project'
+# The long spellings are rejected by the BSD rm on this machine, but GNU rm
+# takes them -- `grm` is installed, and these scripts also run on Linux.
+expect BLOCK 'rm --recursive --force ~/important-project'
+expect BLOCK 'rm --recursive ~/important-project'
+expect BLOCK 'rm -r --force ~/important-project'
+# ...and every one of them is exempt for a disposable tree, as `-rf` is.
+expect ALLOW 'rm -r node_modules'
+expect ALLOW 'rm -r -f .venv'
+expect ALLOW 'rm -rvf node_modules'
+expect ALLOW 'rm --recursive --force node_modules'
+# A NON-RECURSIVE removal is still not governed. That is what stops an ordinary
+# file removal poisoning the pool for a cleanup beside it.
+expect ALLOW 'rm -f README.md'
+expect ALLOW 'rm -f README.md; rm -rf node_modules'
+expect ALLOW 'rm -i notes.txt'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

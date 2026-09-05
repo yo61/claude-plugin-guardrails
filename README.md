@@ -90,7 +90,7 @@ mistake.
 ## Tests
 
 ```bash
-GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 321 cases
+GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 340 cases
 ```
 
 `GUARD` defaults to the installed hook at `~/.claude/hooks/bash-guard.sh`, so
