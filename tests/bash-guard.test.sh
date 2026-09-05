@@ -310,6 +310,14 @@ expect ALLOW "bash -c 'mapfile -t arr < file'"
 expect BLOCK "echo '#!/usr/bin/env bash'; echo \"\${arr[0]}\""
 expect BLOCK "grep -F '#!/bin/bash' f; echo \"\${arr[0]}\""
 expect BLOCK "echo 'bash -c foo'; echo \"\${arr[0]}\""
+# The same stripping ends a false positive the README used to warn about:
+# authoring bash CONTENT through a quoted one-liner. Single-quoted text is
+# never expanded, so there is no zsh index to get wrong -- but double quotes
+# ARE expanded, and that stays a mistake.
+expect ALLOW "perl -pi -e 's/OLD/\${BASH_SOURCE[0]}/' file.sh"
+expect ALLOW "perl -pi -e 's/OLD/\${arr[0]}/' file.sh"
+expect ALLOW "sed -i '' 's/x/\${BASH_SOURCE[0]}/' file.sh"
+expect BLOCK "perl -pi -e \"s/OLD/\${arr[0]}/\" file.sh"
 
 echo "--- git push to main/master: prompt, never silent ---"
 expect ASK 'git push origin main'

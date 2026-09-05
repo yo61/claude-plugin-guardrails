@@ -76,14 +76,21 @@ named inside a quoted string (`echo "never use grep -r"`) does not trip a rule.
 
 ## Known false positive
 
-Authoring bash *content* inline — e.g. writing `${BASH_SOURCE[0]}` through a
-`perl -pi` one-liner — reads as zsh array indexing and is blocked. Use the Write
-tool for that, which is the better route anyway.
+A heredoc carrying no shebang is read as a command rather than as the file it
+writes, so bash content in the body is judged as zsh. `cat > s.sh <<'EOF'` with
+`${arr[0]}` inside is blocked, although the quoted delimiter means the shell
+expands nothing and the index is correct in the script being written. Add the
+`#!/usr/bin/env bash` line — that is what marks the text as bash source — or use
+the Write tool.
+
+Quoted one-liners are not affected: `perl -pi -e 's/OLD/${BASH_SOURCE[0]}/' f`
+is allowed, because single-quoted text is never expanded and so cannot be a zsh
+mistake.
 
 ## Tests
 
 ```bash
-GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 283 cases
+GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 287 cases
 ```
 
 `GUARD` defaults to the installed hook at `~/.claude/hooks/bash-guard.sh`, so
