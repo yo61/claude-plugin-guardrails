@@ -356,6 +356,26 @@ rm_targets() {
     seg=${seg#"${seg%%[![:space:]]*}"} # ltrim
     seg=${seg#(}                       # a leading `(` from a subshell
     seg=${seg#"${seg%%[![:space:]]*}"}
+    # A command substitution starts a new command, and the segmenter does not
+    # split on `$(`. So `LOG=$(rm -rf node_modules)` arrived as ONE segment that
+    # did not begin with `rm `, no targets were collected, and the empty-target
+    # fail-safe called it unjudgeable -- denying an all-disposable cleanup that
+    # the guard allowed before this branch. The outer rule already treats `$(`
+    # as a command start; this makes the target scan agree with it.
+    #
+    # Only the FIRST opener is stripped. Consuming every one would leave just
+    # the text after the last, so `$(rm -rf ~/keep)$(rm -rf node_modules)` would
+    # report only the disposable half and exempt the deletion of the other.
+    if [[ $seg != rm[[:space:]]* && $seg == *'$('* ]]; then
+      seg=${seg#*'$('}
+      seg=${seg#"${seg%%[![:space:]]*}"}
+      # The substitution's closing paren can arrive glued to the quote of the
+      # string that contained it, leaving a token like `.venv)"`. That reads as
+      # quoted, so the trailing-paren strip skips it and a disposable target
+      # looks like a path whose name ends in a bracket.
+      seg=${seg%\"}
+      seg=${seg%\'}
+    fi
     [[ $seg == rm[[:space:]]* ]] || continue
     # Only invocations the RULE governs, i.e. recursive-force ones. Collecting
     # from every `rm` let a plain file removal poison the check for a legitimate

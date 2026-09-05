@@ -456,5 +456,14 @@ expect ALLOW "printf %s \"\${BASH_SOURCE[0]}\""
 expect ALLOW 'printf %s "$BASH_SOURCE"'
 expect ALLOW 'printf %s "${BASH_VERSINFO}"'
 
+# An `rm` inside a command substitution is still an `rm`. The segmenter does
+# not split on `$(`, so the segment did not begin with `rm `, no targets were
+# collected, and the unjudgeable fail-safe denied a clean cleanup.
+expect ALLOW 'x=$(rm -rf node_modules)'
+expect ALLOW 'LOG=$(rm -rf node_modules 2>&1)'
+expect ALLOW 'echo "$(rm -rf .venv)"'
+expect BLOCK 'x=$(rm -rf ~/important-project)'
+expect BLOCK 'LOG=$(rm -rf .venv ~/important-project)'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
