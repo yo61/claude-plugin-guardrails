@@ -502,5 +502,18 @@ expect BLOCK 'diff <(echo $(rm -rf ~/important-project)) /dev/null; rm -rf node_
 expect ALLOW 'diff <(rm -rf node_modules) /dev/null; rm -rf .venv'
 expect ALLOW 'tee >(rm -rf /tmp/scratch) < /dev/null'
 
+# A substitution body is a COMMAND LIST. Emitted whole, a body whose first word
+# is not `rm` contributed no target at all -- and because the disposable check
+# is scored across the whole command, one ordinary cleanup beside it supplied a
+# passing target and the hidden deletion was never examined.
+expect BLOCK 'rm -rf node_modules; echo "$(true; rm -rf ~/important-project)"'
+expect BLOCK 'rm -rf node_modules; echo "$(cd /tmp && rm -rf ~/important-project)"'
+expect BLOCK 'rm -rf .venv; echo "$(false || rm -rf ~/important-project)"'
+expect BLOCK 'rm -rf node_modules; diff <(true; rm -rf ~/important-project) /dev/null'
+expect BLOCK 'echo "$(true; rm -rf ~/important-project)"'
+# ...and a compound body whose deletions are all disposable stays allowed.
+expect ALLOW 'rm -rf node_modules; echo "$(true; rm -rf .venv)"'
+expect ALLOW 'echo "$(cd /tmp && rm -rf /tmp/scratch)"'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

@@ -348,7 +348,7 @@ END {
 # truncates that candidate early, leaving an unterminated quote and a target
 # that cannot be judged disposable -- the safe direction.
 rm_candidates() {
-  local seg=$1 rest opener='$('
+  local seg=$1 rest body opener='$('
   printf '%s\0' "$seg"
   # PROCESS substitution runs a command too. `<(...)` and `>(...)` are executed
   # for their side effects whether or not anything reads the descriptor --
@@ -360,7 +360,21 @@ rm_candidates() {
   rest=${rest//'>('/"$opener"}
   while [[ $rest == *"$opener"* ]]; do
     rest=${rest#*"$opener"}
-    printf '%s\0' "${rest%%)*}"
+    # A substitution body is a COMMAND LIST, not a single command, so it is
+    # split again the same way the whole command was. Emitted whole, a body
+    # whose first word is not `rm` -- `$(true; rm -rf ~/project)`,
+    # `$(cd /tmp && rm -rf ~/project)` -- matched nothing and contributed no
+    # target at all. Alone that failed safe, since no targets anywhere means
+    # unjudgeable; but the disposable check is scored across the whole command,
+    # so one ordinary `rm -rf node_modules` beside it supplied the target that
+    # passed, and the hidden deletion was never examined.
+    #
+    # The quoting is why the outer split missed it: `"$(true; rm ...)"` sits
+    # inside double quotes, which the segmenter copies verbatim, so that `;`
+    # was never a separator at the outer level.
+    while IFS= read -r -d '' body; do
+      printf '%s\0' "$body"
+    done < <(printf '%s' "${rest%%)*}" | awk "$SEGMENT")
   done
 }
 
