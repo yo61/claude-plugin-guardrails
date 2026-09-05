@@ -550,5 +550,44 @@ expect BLOCK "echo \"\$(true; rm -rf ~/important-project)\"; rm -rf node_modules
 # ...and a disposable one inside a substitution stays allowed.
 expect ALLOW "echo \"\$(cd /tmp && rm -rf /tmp/scratch)\""
 
+# A COMMENT IS NOT AN ARGUMENT. Nothing dropped `#`, so a trailing note was
+# tokenised as further targets, none of them disposable -- an ordinary cleanup
+# with a comment on it was blocked.
+expect ALLOW "rm -rf .venv # this deletes ~/important-project"
+expect ALLOW "rm -rf node_modules  # cleanup"
+expect ALLOW "# rm -rf ~/important-project"
+expect ALLOW "rm -rf .venv #comment-with-no-space"
+# A comment ends at the NEWLINE, so a deletion on the next line is still seen.
+# The first of these is the shape that matters: a permitted cleanup supplies a
+# disposable target, and running the comment on to the end of the input would
+# drop the protected deletion under it -- leaving an all-disposable list and an
+# exemption for a command that deletes the project.
+expect BLOCK "rm -rf node_modules # tidy up
+rm -rf ~/important-project"
+expect BLOCK "echo hi # note
+rm -rf ~/important-project"
+expect BLOCK "echo \"\$(echo a # note
+rm -rf ~/important-project)\""
+# ...and `#` is only a comment at the start of a word. Elsewhere it is a
+# filename character, and the shell deletes the file. Each of these puts the
+# disposable name BEFORE the `#` and the protected path after it, so treating
+# the `#` as a comment turns the deny into an allow rather than leaving it
+# unchanged -- which is what makes the word-start test observable.
+expect BLOCK "rm -rf node_modules#important-project"
+expect BLOCK "rm -rf '.venv#important-project'"
+expect BLOCK "rm -rf \".venv#important-project\""
+expect BLOCK "rm -rf \\.venv#important-project"
+# A quote ends the QUOTE, not the word: `".venv"#x` is the one argument
+# `.venv#x`, so the `#` is a filename character on the far side of it too.
+expect BLOCK "rm -rf \".venv\"#important-project"
+# An escape ends neither: `node_module\\s#x` is the one filename
+# `node_modules#x`, disposable-looking right up to the `#`.
+expect BLOCK "rm -rf node_module\\s#important-project"
+expect BLOCK "rm -rf '.venv'#important-project"
+expect BLOCK "rm -rf ~/important#project"
+expect BLOCK "rm -rf \"~/important \"#project"
+# A comment inside quotes is text.
+expect BLOCK "rm -rf \"~/important-project # not a comment\""
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

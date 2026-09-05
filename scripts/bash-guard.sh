@@ -245,22 +245,40 @@ readonly REDIR='([0-9]*(>>|>\||>|<)|&>>|&>|[0-9]*(>&|<&))'
 # to tell a redirection from a filename that merely starts with `>`. This is
 # the same quote scan TOKENISE performs, kept separate because the two want
 # opposite things from a quote -- one copies it through, the other strips it.
+# A `#` starts a COMMENT only at the start of a word, and the comment runs to
+# the end of the LINE. Both halves matter. Nothing dropped comments at all, so
+# `rm -rf .venv # cleanup` contributed `#` and `cleanup` as further targets,
+# neither disposable, and a permitted cleanup was blocked for the text of the
+# note attached to it.
+#
+# `word` tracks the start of a word, which is not the same as the end of a
+# quote: `a\ #b` and `"a "#b` are both the single argument `a #b`, so the `#`
+# there is a filename character. Only UNQUOTED whitespace opens a new word.
+# Erring the other way is the safe direction -- `>#b` is a comment to the shell
+# and a redirect target here, and reading a comment as an argument can only add
+# targets, never hide one.
+#
+# Stopping at the newline rather than the end of the input is what keeps this
+# from becoming a bypass. `$(echo a # note` NEWLINE `rm -rf ~/project)` really
+# does run the deletion, and the line after the comment is scanned normally.
 readonly SEGMENT='
 BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
 { buf = buf (NR > 1 ? "\n" : "") $0 }
 END {
-  n = length(buf); seg = ""
+  n = length(buf); seg = ""; word = 1
   for (i = 1; i <= n; i++) {
     c = substr(buf, i, 1)
     if (c == BS) {
       if (i < n && substr(buf, i + 1, 1) == "\n") { i++; continue }
       seg = seg c
       if (++i <= n) { seg = seg substr(buf, i, 1) }
+      word = 0
       continue
     }
     if (c == SQ) {
       seg = seg c
       while (++i <= n) { c = substr(buf, i, 1); seg = seg c; if (c == SQ) break }
+      word = 0
       continue
     }
     if (c == DQ) {
@@ -271,18 +289,24 @@ END {
         seg = seg c
         if (c == DQ) break
       }
+      word = 0
+      continue
+    }
+    if (c == "#" && word) {
+      while (i < n && substr(buf, i + 1, 1) != "\n") { i++ }
       continue
     }
     if (c == "&" || c == "|") {
       prev = substr(seg, length(seg), 1)
       nxt = (i < n) ? substr(buf, i + 1, 1) : ""
-      if (prev == ">" || prev == "<") { seg = seg c; continue }
-      if (c == "&" && nxt == ">") { seg = seg c; continue }
-      printf "%s%c", seg, 0; seg = ""
+      if (prev == ">" || prev == "<") { seg = seg c; word = 0; continue }
+      if (c == "&" && nxt == ">") { seg = seg c; word = 0; continue }
+      printf "%s%c", seg, 0; seg = ""; word = 1
       continue
     }
-    if (c == ";" || c == "\n") { printf "%s%c", seg, 0; seg = ""; continue }
+    if (c == ";" || c == "\n") { printf "%s%c", seg, 0; seg = ""; word = 1; continue }
     seg = seg c
+    word = (c == " " || c == "\t")
   }
   printf "%s%c", seg, 0
 }'
