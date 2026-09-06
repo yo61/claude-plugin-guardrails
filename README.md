@@ -93,6 +93,15 @@ mistake.
 GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 348 cases
 ```
 
+```bash
+bash tests/inert-cases.test.sh    # 15 cases, both directions
+```
+
+The second suite tests `tests/inert-cases.sh`, which checks that a case in the
+first is data rather than syntax. A case written inside double quotes has live
+backticks, so the suite would run the deletion it means to hand the guard as a
+string; neither shellcheck nor shfmt covers that.
+
 `GUARD` defaults to the installed hook at `~/.claude/hooks/bash-guard.sh`, so
 without it the suite reports on the copy you have installed rather than the one
 you are editing. The prek hook and CI both pass the repository path.

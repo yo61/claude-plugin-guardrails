@@ -16,6 +16,10 @@
 # which is equally live and no longer flagged. Between them they can launder a
 # case that executes into one that executes quietly.
 #
+# A case may also SPAN LINES, and this must follow it across them: reading only
+# the line that opens the case reported a live backtick on a continuation line
+# as inert, which is the one answer a check like this must never give wrongly.
+#
 # Single-quoted cases are inert and need nothing. A case that must contain single
 # quotes spells the backtick through `$BT`, which expands after the shell has
 # finished looking for commands to run.
@@ -27,20 +31,43 @@ readonly SUITE="${1:-tests/bash-guard.test.sh}"
 # Walk each double-quoted case body, honouring backslash escapes, and report a
 # backtick or `$(` that the shell would act on. A `\$(` or a `\`` is data.
 readonly SCAN='
-BEGIN { BT = sprintf("%c", 96); DQ = sprintf("%c", 34); BS = sprintf("%c", 92) }
-$0 ~ /^[[:space:]]*expect[[:space:]]+[A-Z]+[[:space:]]+/ {
+BEGIN { BT = sprintf("%c", 96); DQ = sprintf("%c", 34); BS = sprintf("%c", 92); incase = 0 }
+{
   line = $0
-  sub(/^[[:space:]]*expect[[:space:]]+[A-Z]+[[:space:]]+/, "", line)
-  if (substr(line, 1, 1) != DQ) next
-  n = length(line); found = ""
-  for (i = 2; i <= n; i++) {
-    c = substr(line, i, 1)
-    if (c == BS) { i++; continue }
-    if (c == DQ) break
-    if (c == BT) found = found (found ? "," : "") "backtick"
-    if (c == "$" && substr(line, i + 1, 1) == "(") found = found (found ? "," : "") "$("
+  if (incase == 0) {
+    if (line !~ /^[[:space:]]*expect[[:space:]]+[A-Z]+[[:space:]]+/) next
+    text = line
+    sub(/^[[:space:]]*expect[[:space:]]+[A-Z]+[[:space:]]+/, "", text)
+    if (substr(text, 1, 1) != DQ) next
+    # A CASE MAY SPAN LINES, and awk hands them over one at a time. Scanning
+    # only the record that starts the case left everything after the first
+    # newline unread, so a live backtick on a continuation line was reported
+    # as inert -- the one answer this check must never give wrongly. The state
+    # carries until the closing quote instead.
+    incase = 1; found = ""; startline = FNR; startrec = $0
+    i = 2; n = length(text); buf = text
+  } else {
+    i = 1; buf = line; n = length(buf)
   }
-  if (found) printf "%s:%d: live %s in a double-quoted case: %s\n", FILENAME, FNR, found, $0
+  for (; i <= n; i++) {
+    c = substr(buf, i, 1)
+    if (c == BS) { i++; continue }
+    if (c == DQ) { incase = 2; break }
+    if (c == BT) found = found (found ? "," : "") "backtick"
+    if (c == "$" && substr(buf, i + 1, 1) == "(") found = found (found ? "," : "") "$("
+  }
+  if (incase == 2) {
+    if (found) printf "%s:%d: live %s in a double-quoted case: %s\n", FILENAME, startline, found, startrec
+    incase = 0
+  }
+}
+END {
+  # An unterminated case is not a clean result. Report what was seen rather
+  # than discarding it, and say the quote never closed.
+  if (incase == 1) {
+    printf "%s:%d: unterminated double-quoted case%s: %s\n", FILENAME, startline,
+      (found ? " containing live " found : ""), startrec
+  }
 }'
 
 main() {

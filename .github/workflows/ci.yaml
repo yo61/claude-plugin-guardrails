@@ -108,3 +108,9 @@ jobs:
       # neither linter covers this.
       - name: guard cases are text, not syntax
         run: bash tests/inert-cases.sh
+
+      # ...and that check is the only thing enforcing it, so it is tested in
+      # both directions itself. It shipped blind to anything past the first
+      # line of a multi-line case, reporting those files clean.
+      - name: inert-cases test suite
+        run: CHECK="$PWD/tests/inert-cases.sh" bash tests/inert-cases.test.sh
