@@ -612,10 +612,15 @@ rm_candidates() {
 # the invocation walked straight past it.
 rm_candidate_governed() {
   local cand=$1 line quoted tok seen_command=0 recursive=0
+  # Groups NEST, so this peels every layer rather than one. Stripping a single
+  # `(` or `{` left the next one glued to the command token, `{ { rm -rf x; }; }`
+  # did not begin with `rm`, and the invocation was ungoverned -- no deny, no
+  # ask. Each pass removes a character, so it always terminates.
   cand=${cand#"${cand%%[![:space:]]*}"} # ltrim
-  cand=${cand#(}                        # a leading `(` from a subshell
-  cand=${cand#\{}                       # ...or `{` from a brace group
-  cand=${cand#"${cand%%[![:space:]]*}"}
+  while [[ $cand == "("* || $cand == "{"* ]]; do
+    cand=${cand#[({]}
+    cand=${cand#"${cand%%[![:space:]]*}"}
+  done
 
   GOVERNED_TOKENS=()
   while IFS= read -r -d '' line; do

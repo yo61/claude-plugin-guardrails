@@ -782,5 +782,21 @@ expect ALLOW 'rm -"r"f .venv'
 expect ALLOW "rm '-f' README.md"
 expect ALLOW "'rm' README.md"
 
+# GROUPS NEST, and only one layer was stripped, so a second left `{` or `(`
+# glued to the command token and the invocation read as something other than
+# `rm` -- ungoverned, no deny, no ask. Nesting them is ordinary bash, not
+# obfuscation, and the regex rules fire through any depth of it; only the
+# parsed rm path stopped at one.
+expect BLOCK '{ { rm -rf ~/important-project; }; }'
+expect BLOCK '( ( rm -rf ~/important-project ) )'
+expect BLOCK '{ ( rm -rf ~/important-project ); }'
+expect BLOCK '( { rm -rf ~/important-project; } )'
+expect BLOCK '{ { { rm -rf ~/important-project; }; }; }'
+expect BLOCK '{ { rm -rf node_modules; }; }; { { rm -rf ~/important-project; }; }'
+# ...and the exemption reaches through the same depth.
+expect ALLOW '{ { rm -rf node_modules; }; }'
+expect ALLOW '( ( rm -rf .venv ) )'
+expect ALLOW '{ ( rm -rf node_modules ); }'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
