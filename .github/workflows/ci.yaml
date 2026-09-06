@@ -87,7 +87,30 @@ jobs:
       - name: shfmt
         run: shfmt -i 2 -bn -ci -sr -d scripts/*.sh tests/*.sh
 
-      # The suite covers blocked AND allowed forms. The allowed half is the one
+      # Both suites cover blocked AND allowed forms. The allowed half is the one
       # that matters: a guard that cries wolf gets switched off.
+      #
+      # GUARD/GATE are set explicitly because the suites default to the copies
+      # installed under ~/.claude/hooks — on a runner that path does not exist,
+      # and locally it would validate a different file than the one in the diff.
       - name: guard test suite
         run: GUARD="$PWD/scripts/bash-guard.sh" bash tests/bash-guard.test.sh
+
+      # The rebase gate drives a real bare repo over file://, so it exercises
+      # the fetch path rather than only the offline fallback.
+      - name: rebase gate test suite
+        run: GATE="$PWD/scripts/git-rebase-gate.sh" bash tests/git-rebase-gate.test.sh
+
+      # A case is data. Written inside double quotes, a backtick or a `$(` in one
+      # is command substitution, and the suite runs the deletion it means to hand
+      # the guard as a string. shellcheck rates a live backtick as style and shfmt
+      # rewrites it to `$(...)`, which is equally live and no longer flagged, so
+      # neither linter covers this.
+      - name: guard cases are text, not syntax
+        run: bash tests/inert-cases.sh
+
+      # ...and that check is the only thing enforcing it, so it is tested in
+      # both directions itself. It shipped blind to anything past the first
+      # line of a multi-line case, reporting those files clean.
+      - name: inert-cases test suite
+        run: CHECK="$PWD/tests/inert-cases.sh" bash tests/inert-cases.test.sh

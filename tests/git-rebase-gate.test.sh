@@ -13,7 +13,14 @@ fail=0
 TMP=$(mktemp -d)
 REMOTE=$TMP/remote.git
 REPO=$TMP/repo
-git init -q --bare "$REMOTE"
+# `-b main` on BOTH, and the bare one matters just as much as the working copy.
+# A bare repo created without it takes its HEAD from the machine's
+# init.defaultBranch: `master` on a GitHub runner. Pushing `main` then leaves
+# HEAD dangling, so `git clone` warns "remote HEAD refers to nonexistent ref"
+# and produces a repo with NO checkout -- and the later `push origin main`
+# fails, so the "main moves ahead" setup silently never happens and every
+# staleness assertion passes vacuously.
+git init -q --bare -b main "$REMOTE"
 git init -q -b main "$REPO"
 git -C "$REPO" config user.email t@t
 git -C "$REPO" config user.name t
@@ -63,6 +70,18 @@ echo more >> "$OTHER/f.txt"
 git -C "$OTHER" add f.txt
 git -C "$OTHER" commit -qm "feat: upstream move"
 git -C "$OTHER" push -q origin main
+
+# ASSERT THE SETUP, do not assume it. When the bare repo's HEAD was unpinned
+# this push failed, `origin/main` never advanced, and every staleness assertion
+# below was exercising a branch that was not actually stale. CI caught it that
+# time because the expectations were `deny`; a suite whose expectations happened
+# to be `allow` would have gone green while testing nothing. A setup step that
+# can fail silently must be checked before the assertions that depend on it.
+git -C "$REPO" fetch -q origin
+if git -C "$REPO" merge-base --is-ancestor origin/main HEAD 2> /dev/null; then
+  echo "SETUP FAILED: origin/main did not advance, so nothing below is stale" >&2
+  exit 1
+fi
 
 expect deny "stale branch" 'git push -u origin feat/x'
 expect deny "stale, with redirection" 'git push 2>&1 | tail'
