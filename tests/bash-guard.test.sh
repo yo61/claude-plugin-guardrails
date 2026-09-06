@@ -808,5 +808,79 @@ expect ALLOW '{ { rm -rf node_modules; }; }'
 expect ALLOW '( ( rm -rf .venv ) )'
 expect ALLOW '{ ( rm -rf node_modules ); }'
 
+# A HEREDOC BODY IS PROSE, not shell syntax, and an apostrophe in it is not a
+# quote. Counting it as one left a span that never closed, so the scan ran to
+# the end of the input and swallowed whatever followed the terminator --
+# including a real deletion on its own line. Writing a sentence with an
+# apostrophe in it and then removing a directory is entirely ordinary, and the
+# guard went silent on it. This regressed against the whole-command match that
+# came before: being quote-aware is what made it blind.
+expect BLOCK "cat <<EOF
+it's dangerous
+EOF
+rm -rf ~/important-project"
+expect BLOCK "cat <<'EOF'
+it's dangerous
+EOF
+rm -rf ~/important-project"
+expect BLOCK "cat <<-EOF
+	it's dangerous
+	EOF
+rm -rf ~/important-project"
+# ...and the exemption still reaches the command after the terminator.
+expect ALLOW "cat <<EOF
+it's fine
+EOF
+rm -rf node_modules"
+expect ALLOW "cat <<'EOF'
+it's fine
+EOF
+rm -rf .venv"
+# A BALANCED pair in the body was never the problem, and still is not.
+expect BLOCK "cat <<EOF
+say \"hi\"
+EOF
+rm -rf ~/important-project"
+# An odd number of them is what desynced the scan, in either spelling.
+expect BLOCK "cat <<EOF
+say \"one\" and it's two
+EOF
+rm -rf ~/important-project"
+# The terminator ends the body, so a deletion written INSIDE one is still read
+# conservatively -- the documented heredoc false positive, denied rather than
+# silently allowed.
+expect BLOCK "cat <<EOF
+it's a script
+rm -rf ~/important-project
+EOF"
+
+# The desync reached every rule, not only the deletion one: the subject the
+# regex rules match against had everything after the terminator stripped out
+# of it, so nothing could match. A here-string is not a heredoc and keeps its
+# quoting.
+expect BLOCK "cat <<EOF
+it's fine
+EOF
+which ls"
+expect BLOCK "cat > s.txt <<EOF
+it's fine
+EOF
+rm -rf ~/important-project"
+expect BLOCK "cat <<EOF
+it's one
+EOF
+cat <<EOF2
+it's two
+EOF2
+rm -rf ~/important-project"
+expect BLOCK "cat <<EOF
+a ${BT} b
+EOF
+rm -rf ~/important-project"
+# A here-string is not a heredoc -- `<<<` must not be read as one, or the
+# rest of the command disappears into a body that never ends.
+expect BLOCK "grep x <<< 'hello'; rm -rf ~/important-project"
+expect ALLOW "grep -F x <<< hello; rm -rf node_modules"
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

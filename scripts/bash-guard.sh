@@ -209,7 +209,7 @@ BEGIN {
 }
 { buf = buf (NR > 1 ? "\n" : "") $0 }
 END {
-  n = length(buf); out = ""; dq = 0; depth = 0; btopen = 0; btdq = 0
+  n = length(buf); out = ""; dq = 0; depth = 0; btopen = 0; btdq = 0; hdstrip = 0
   for (i = 1; i <= n; i++) {
     c = substr(buf, i, 1)
     if (c == BS) {
@@ -220,6 +220,46 @@ END {
       # being dropped, so `\$` is still not read as an expansion.
       if (i < n && substr(buf, i + 1, 1) == BT) { out = out BT; i++; continue }
       i++
+      continue
+    }
+    if (c == "<" && i < n && substr(buf, i + 1, 1) == "<" && substr(buf, i + 2, 1) != "<") {
+      # The same blindness as the splitter had: a heredoc body is prose, and an
+      # apostrophe in it opened a span that never closed, so everything after
+      # the terminator was stripped out of the subject and no rule could match
+      # it. The body is copied through untouched instead.
+      out = out c substr(buf, i + 1, 1)
+      i += 2
+      hdstrip = 0
+      if (i <= n && substr(buf, i, 1) == "-") { hdstrip = 1; out = out "-"; i++ }
+      while (i <= n && (substr(buf, i, 1) == " " || substr(buf, i, 1) == "\t")) {
+        out = out substr(buf, i, 1); i++
+      }
+      hd = ""
+      qc = substr(buf, i, 1)
+      if (qc == SQ || qc == DQ) {
+        i++
+        while (i <= n && substr(buf, i, 1) != qc) { hd = hd substr(buf, i, 1); out = out substr(buf, i, 1); i++ }
+        if (i <= n) { i++ }
+      } else {
+        while (i <= n && substr(buf, i, 1) ~ /[A-Za-z0-9_.-]/) { hd = hd substr(buf, i, 1); out = out substr(buf, i, 1); i++ }
+      }
+      # Copy to the end of the opening line, then the body, verbatim.
+      while (i <= n && substr(buf, i, 1) != "\n") { out = out substr(buf, i, 1); i++ }
+      if (i <= n) { out = out "\n"; }
+      while (i < n) {
+        line = ""
+        while (i < n) {
+          i++
+          ch = substr(buf, i, 1)
+          if (ch == "\n") break
+          line = line ch
+        }
+        t = line
+        if (hdstrip) { sub(/^\t+/, "", t) }
+        out = out line "\n"
+        if (t == hd) break
+        if (i >= n) break
+      }
       continue
     }
     if (c == SQ && dq == 0) {
@@ -325,7 +365,7 @@ BEGIN {
 }
 { buf = buf (NR > 1 ? "\n" : "") $0 }
 END {
-  n = length(buf); seg = ""; word = 1
+  n = length(buf); seg = ""; word = 1; hd = ""; hdstrip = 0
   for (i = 1; i <= n; i++) {
     c = substr(buf, i, 1)
     if (c == BS) {
@@ -370,6 +410,32 @@ END {
       word = 0
       continue
     }
+    if (c == "<" && i < n && substr(buf, i + 1, 1) == "<" && substr(buf, i + 2, 1) != "<") {
+      # A HEREDOC BODY IS PROSE, not shell syntax. Scanning it as syntax made an
+      # apostrophe in it -- `it` SQ `s`, in an ordinary sentence -- open a span
+      # that never closed, so the loop ran to the end of the input and swallowed
+      # whatever followed the terminator, including a real deletion on its own
+      # line. The delimiter is remembered here and the body consumed literally
+      # at the newline below.
+      seg = seg c substr(buf, i + 1, 1)
+      i += 2
+      if (i <= n && substr(buf, i, 1) == "-") { hdstrip = 1; seg = seg "-"; i++ }
+      while (i <= n && (substr(buf, i, 1) == " " || substr(buf, i, 1) == "\t")) {
+        seg = seg substr(buf, i, 1); i++
+      }
+      hd = ""
+      qc = substr(buf, i, 1)
+      if (qc == SQ || qc == DQ) {
+        seg = seg qc; i++
+        while (i <= n && substr(buf, i, 1) != qc) { hd = hd substr(buf, i, 1); seg = seg substr(buf, i, 1); i++ }
+        if (i <= n) { seg = seg substr(buf, i, 1); i++ }
+      } else {
+        while (i <= n && substr(buf, i, 1) ~ /[A-Za-z0-9_.-]/) { hd = hd substr(buf, i, 1); seg = seg substr(buf, i, 1); i++ }
+      }
+      i--
+      word = 0
+      continue
+    }
     if (c == "#" && word) {
       while (i < n && substr(buf, i + 1, 1) != "\n") { i++ }
       continue
@@ -382,7 +448,31 @@ END {
       printf "%s%c", seg, 0; seg = ""; word = 1
       continue
     }
-    if (c == ";" || c == "\n") { printf "%s%c", seg, 0; seg = ""; word = 1; continue }
+    if (c == ";" || c == "\n") {
+      printf "%s%c", seg, 0; seg = ""; word = 1
+      # Body lines are emitted as their own clauses, so a command really written
+      # after the terminator is still seen -- and quoting inside the body never
+      # touches the scan state. The terminator itself is not a command and is
+      # not emitted.
+      if (c == "\n" && hd != "") {
+        while (i < n) {
+          line = ""
+          while (i < n) {
+            i++
+            ch = substr(buf, i, 1)
+            if (ch == "\n") break
+            line = line ch
+          }
+          t = line
+          if (hdstrip) { sub(/^\t+/, "", t) }
+          if (t == hd) break
+          printf "%s%c", line, 0
+          if (i >= n) break
+        }
+        hd = ""; hdstrip = 0
+      }
+      continue
+    }
     seg = seg c
     word = (c == " " || c == "\t")
   }
