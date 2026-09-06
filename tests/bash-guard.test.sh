@@ -882,5 +882,24 @@ rm -rf ~/important-project"
 expect BLOCK "grep x <<< 'hello'; rm -rf ~/important-project"
 expect ALLOW "grep -F x <<< hello; rm -rf node_modules"
 
+# `$'...'` IS ANSI-C QUOTING: a backslash escapes the next character, so an
+# escaped quote does not close the string. Toggling on it ended the span
+# early, reopened one at the real close, and swallowed the separator and
+# everything after it. Verified in zsh that the deletion really runs.
+expect BLOCK "echo \$'a\\'b'; rm -rf ~/important-project"
+expect BLOCK "echo \$'a\\'b'; which ls"
+expect ALLOW "echo \$'a\\'b'; rm -rf node_modules"
+# An UNTERMINATED quote is not a quote. An apostrophe with no partner is
+# ordinary text -- in a comment, or inside a backtick span the shell scans
+# lexically -- and consuming to the end of input on one hid everything after
+# it. Both of these really do run the command after the apostrophe.
+expect BLOCK "echo hi # it's fine
+which ls"
+expect BLOCK "echo hi # it's fine
+rm -rf ~/important-project"
+expect BLOCK "echo ${BT}echo it's${BT}; which ls"
+expect ALLOW "echo hi # it's fine
+rm -rf node_modules"
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

@@ -263,7 +263,30 @@ END {
       continue
     }
     if (c == SQ && dq == 0) {
-      while (++i <= n) { if (substr(buf, i, 1) == SQ) break }
+      # `$'...'` is ANSI-C quoting, where a backslash escapes the NEXT character
+      # and an escaped quote does NOT close the string. Toggling on it ended the
+      # span early and reopened one at the real close, so the rest of the command
+      # -- the separator and everything after it -- was swallowed as if still
+      # inside the string. `ansi` is decided by the `$` that opens it.
+      ansi = (i > 1 && substr(buf, i - 1, 1) == "$")
+      # AN UNTERMINATED QUOTE IS NOT A QUOTE. An apostrophe with no partner is
+      # ordinary text -- in a comment, or inside a backtick span the shell scans
+      # lexically -- and treating one as an opener consumed everything after it,
+      # hiding every command that followed. The close is located first; without
+      # one the character is passed through as itself. Erring this way can only
+      # leave MORE text to judge, never less.
+      k = i; closed = 0
+      while (++k <= n) {
+        ch = substr(buf, k, 1)
+        if (ansi && ch == BS && k < n) { k++; continue }
+        if (ch == SQ) { closed = 1; break }
+      }
+      if (closed == 0) { out = out c; continue }
+      while (++i <= n) {
+        ch = substr(buf, i, 1)
+        if (ansi && ch == BS && i < n) { i++; continue }
+        if (ch == SQ) break
+      }
       continue
     }
     if (c == BT) {
@@ -376,8 +399,32 @@ END {
       continue
     }
     if (c == SQ) {
+      # `$'...'` is ANSI-C quoting, where a backslash escapes the NEXT character
+      # and an escaped quote does NOT close the string. Toggling on it ended the
+      # span early and reopened one at the real close, so the rest of the command
+      # -- the separator and everything after it -- was swallowed as if still
+      # inside the string. `ansi` is decided by the `$` that opens it.
+      ansi = (i > 1 && substr(buf, i - 1, 1) == "$")
+      # AN UNTERMINATED QUOTE IS NOT A QUOTE. An apostrophe with no partner is
+      # ordinary text -- in a comment, or inside a backtick span the shell scans
+      # lexically -- and treating one as an opener consumed everything after it,
+      # hiding every command that followed. The close is located first; without
+      # one the character is passed through as itself. Erring this way can only
+      # leave MORE text to judge, never less.
+      k = i; closed = 0
+      while (++k <= n) {
+        ch = substr(buf, k, 1)
+        if (ansi && ch == BS && k < n) { k++; continue }
+        if (ch == SQ) { closed = 1; break }
+      }
+      if (closed == 0) { seg = seg c; word = 0; continue }
       seg = seg c
-      while (++i <= n) { c = substr(buf, i, 1); seg = seg c; if (c == SQ) break }
+      while (++i <= n) {
+        c = substr(buf, i, 1)
+        if (ansi && c == BS && i < n) { seg = seg c substr(buf, ++i, 1); continue }
+        seg = seg c
+        if (c == SQ) break
+      }
       word = 0
       continue
     }
@@ -512,8 +559,19 @@ END {
       continue
     }
     if (c == SQ) {
+      # `$'...'` is ANSI-C quoting, where a backslash escapes the NEXT character
+      # and an escaped quote does NOT close the string. Toggling on it ended the
+      # span early and reopened one at the real close, so the rest of the command
+      # -- the separator and everything after it -- was swallowed as if still
+      # inside the string. `ansi` is decided by the `$` that opens it.
+      ansi = (i > 1 && substr(buf, i - 1, 1) == "$")
       started = 1; quoted = 1
-      while (++i <= n) { c = substr(buf, i, 1); if (c == SQ) break; tok = tok c }
+      while (++i <= n) {
+        c = substr(buf, i, 1)
+        if (ansi && c == BS && i < n) { tok = tok substr(buf, ++i, 1); continue }
+        if (c == SQ) break
+        tok = tok c
+      }
       continue
     }
     if (c == DQ) {
@@ -572,7 +630,30 @@ END {
     if (c == BS) { i++; continue }
     if (c == DQ) { dq = 1 - dq; continue }
     if (c == SQ && dq == 0) {
-      while (++i <= n) { if (substr(buf, i, 1) == SQ) break }
+      # `$'...'` is ANSI-C quoting, where a backslash escapes the NEXT character
+      # and an escaped quote does NOT close the string. Toggling on it ended the
+      # span early and reopened one at the real close, so the rest of the command
+      # -- the separator and everything after it -- was swallowed as if still
+      # inside the string. `ansi` is decided by the `$` that opens it.
+      ansi = (i > 1 && substr(buf, i - 1, 1) == "$")
+      # AN UNTERMINATED QUOTE IS NOT A QUOTE. An apostrophe with no partner is
+      # ordinary text -- in a comment, or inside a backtick span the shell scans
+      # lexically -- and treating one as an opener consumed everything after it,
+      # hiding every command that followed. The close is located first; without
+      # one the character is passed through as itself. Erring this way can only
+      # leave MORE text to judge, never less.
+      k = i; closed = 0
+      while (++k <= n) {
+        ch = substr(buf, k, 1)
+        if (ansi && ch == BS && k < n) { k++; continue }
+        if (ch == SQ) { closed = 1; break }
+      }
+      if (closed == 0) { continue }
+      while (++i <= n) {
+        ch = substr(buf, i, 1)
+        if (ansi && ch == BS && i < n) { i++; continue }
+        if (ch == SQ) break
+      }
       continue
     }
     if (c == BT) {
