@@ -59,20 +59,29 @@ rule() {
 # rule decides from the parsed invocations instead, and needs to say so without
 # re-deriving the decision as a pattern.
 add_denial() {
-  local d
-  for d in ${denials[@]+"${denials[@]}"}; do
-    [[ $d == "$1" ]] && return 0
+  already_listed "$1" ${denials[@]+"${denials[@]}"} || denials+=("$1")
+}
+
+# Whether a message has already been recorded. Denials and prompts each had
+# their own copy of this loop, which is the two-implementations drift this file
+# removes from the `rm` rule a few functions down -- a later change to the
+# comparison, applied to one and not the other, would have made them dedupe
+# differently without anything failing.
+#
+# Takes the list by value rather than by name: `local -n` needs bash 4.3, and
+# the macOS system bash is 3.2.
+already_listed() {
+  local needle=$1 item
+  shift
+  for item in "$@"; do
+    [[ $item == "$needle" ]] && return 0
   done
-  denials+=("$1")
+  return 1
 }
 
 ask() {
   matches "$1" || return 0
-  local q
-  for q in ${prompts[@]+"${prompts[@]}"}; do
-    [[ $q == "$2" ]] && return 0
-  done
-  prompts+=("$2")
+  already_listed "$2" ${prompts[@]+"${prompts[@]}"} || prompts+=("$2")
 }
 
 # A bash-only variable used AS a variable, with single-quoted literals removed

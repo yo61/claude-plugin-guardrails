@@ -465,6 +465,16 @@ ok_msg() {
 ok_msg "the same violation in two clauses reports once" "$(reasons "$DUP")" "1"
 ok_msg "two different violations both report" \
   "$(reasons "$(printf '%s install a; which foo' pip)")" "2"
+# A PROMPT dedupes the same way a denial does, and this is the case that says
+# so. The two paths kept their own copy of the check until they were made to
+# share one; nothing here would have failed if only one of them had been
+# changed afterwards.
+ok_msg "the same prompt in two clauses reports once" \
+  "$(reasons 'git push origin main; git push origin master')" "1"
+# A denial takes precedence over a prompt: the hook emits one decision, and a
+# deny outranks an ask, so the prompt is not reported alongside it.
+ok_msg "a denial outranks a prompt beside it" \
+  "$(reasons "$(printf 'git push origin main; %s install a' pip)")" "1"
 
 # The name has to END where the list says. Without a trailing boundary any
 # identifier merely STARTING with one of these counted -- an invented
