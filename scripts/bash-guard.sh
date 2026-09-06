@@ -606,23 +606,40 @@ rm_candidates() {
 # the rule never fired -- no deny, no ask. GNU rm permutes its arguments, so
 # that really does delete the tree; the BSD rm here errors instead.
 #
-# Sets GOVERNED_CAND to the normalised invocation so the caller does not repeat
-# the trimming and disagree about that too.
+# It also tokenises, once, into GOVERNED_TOKENS, and the target scan reads
+# those same tokens. Deciding from raw text was the last place in this
+# machinery that did not go through the tokeniser, and quoting any part of
+# the invocation walked straight past it.
 rm_candidate_governed() {
-  local cand=$1
+  local cand=$1 line quoted tok seen_command=0 recursive=0
   cand=${cand#"${cand%%[![:space:]]*}"} # ltrim
   cand=${cand#(}                        # a leading `(` from a subshell
   cand=${cand#\{}                       # ...or `{` from a brace group
   cand=${cand#"${cand%%[![:space:]]*}"}
-  GOVERNED_CAND=$cand
-  [[ $cand == rm[[:space:]]* ]] || return 1
 
-  # Only invocations the rule governs. Collecting from every `rm` let a plain
-  # file removal poison the check for a legitimate cleanup beside it:
-  # `rm -f README.md` and `rm -rf node_modules` are each allowed alone, but
-  # together the non-disposable README.md made the pair deny -- a false block
-  # built out of two permitted commands.
-  [[ $cand =~ (^|[[:space:]])${RECURSIVE}([[:space:]]|$) ]]
+  GOVERNED_TOKENS=()
+  while IFS= read -r -d '' line; do
+    quoted=${line:0:1}
+    tok=${line:1}
+
+    # The command name, whatever it is spelled as. `\rm` is the ordinary way to
+    # bypass an alias and `'rm'` runs the same binary, so this compares the
+    # RESOLVED token rather than the text.
+    if [[ $seen_command -eq 0 ]]; then
+      seen_command=1
+      [[ $tok == rm ]] || return 1
+      continue
+    fi
+
+    # Recursion, likewise resolved. Quoting a flag changes the text and not one
+    # byte of what `rm` receives: `rm '"'"'-rf'"'"' x`, `rm \-rf x` and `rm -"r"f x`
+    # each hand it the identical argument `-rf`.
+    [[ $tok =~ ^${RECURSIVE}$ ]] && recursive=1
+
+    GOVERNED_TOKENS+=("$line")
+  done < <(printf '%s' "$cand" | awk "$TOKENISE")
+
+  [[ $seen_command -eq 1 && $recursive -eq 1 ]]
 }
 
 # Whether the command runs any governed `rm` at all, over the SAME enumeration
@@ -650,12 +667,14 @@ rm_targets() {
   while IFS= read -r -d '' seg; do
     while IFS= read -r -d '' cand; do
       rm_candidate_governed "$cand" || continue
-      cand=$GOVERNED_CAND
       skip_next=0
       end_of_opts=0
       seen_operand=0
       # Tokenise quote-aware (see TOKENISE): `q`/`u` prefix, then the token.
-      while IFS= read -r -d '' line; do
+      # The SAME tokens the governance test read, not a second tokenisation of
+      # the same text. Stripping a literal `rm ` prefix instead missed a quoted
+      # command name entirely, leaving `rm` itself in the stream as a target.
+      for line in ${GOVERNED_TOKENS[@]+"${GOVERNED_TOKENS[@]}"}; do
         quoted=${line:0:1}
         tok=${line:1}
 
@@ -706,7 +725,7 @@ rm_targets() {
           seen_operand=1
           printf '%s\0' "$tok"
         fi
-      done < <(printf '%s' "${cand#rm }" | awk "$TOKENISE")
+      done
     done < <(rm_candidates "$seg")
   done < <(printf '%s' "$cmd" | awk "$SEGMENT")
   set +f

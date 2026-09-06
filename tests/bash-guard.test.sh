@@ -758,5 +758,29 @@ expect BLOCK 'rm .venv -rf node_modules'
 expect ALLOW 'rm somefile -f README.md'
 expect ALLOW 'rm README.md notes.txt'
 
+# QUOTING A FLAG DOES NOT CHANGE WHAT rm RECEIVES. `rm '-rf' x`, `rm \-rf x`
+# and `rm -"r"f x` all hand `rm` the identical argument `-rf`, and the command
+# name may be quoted the same way -- `\rm` is the ordinary idiom for bypassing
+# an alias. The governance test read the raw text, so every one of these was
+# ungoverned: no deny, no ask, and the tree deleted. Verified against real
+# fixture directories.
+expect BLOCK "rm '-rf' ~/important-project"
+expect BLOCK 'rm \-rf ~/important-project'
+expect BLOCK 'rm -"r"f ~/important-project'
+expect BLOCK "rm --'recursive' ~/important-project"
+expect BLOCK "'rm' -rf ~/important-project"
+expect BLOCK '\rm -rf ~/important-project'
+expect BLOCK "'rm' '-rf' ~/important-project"
+expect BLOCK "rm -rf node_modules; rm '-rf' ~/important-project"
+# ...and the exemption survives the same spellings, so a quoted cleanup is not
+# blocked for being written that way.
+expect ALLOW "rm '-rf' node_modules"
+expect ALLOW "'rm' -rf node_modules"
+expect ALLOW '\rm -rf node_modules'
+expect ALLOW 'rm -"r"f .venv'
+# Quoting does not make a non-recursive removal governed either.
+expect ALLOW "rm '-f' README.md"
+expect ALLOW "'rm' README.md"
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
