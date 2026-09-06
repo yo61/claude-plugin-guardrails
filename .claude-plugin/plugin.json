@@ -1,6 +1,6 @@
 {
   "name": "guardrails",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Deterministic PreToolUse guardrails for the Bash tool: blocks known-wrong shell commands (grep -r, rg -rn, which, rm -rf, find -name, legacy toolchains) and bash-only syntax that breaks under zsh, handing back the correct form.",
   "author": {
     "name": "Robin Bowes",
