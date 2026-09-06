@@ -901,5 +901,32 @@ expect BLOCK "echo ${BT}echo it's${BT}; which ls"
 expect ALLOW "echo hi # it's fine
 rm -rf node_modules"
 
+# A COMPOUND COMMAND STILL RUNS THE COMMAND INSIDE IT. Only `(` and `{` were
+# peeled, so a clause beginning `then`, `do`, `else` or `!` tokenised to the
+# keyword as its command name, was not governed, and deleted with no deny and
+# no ask. `if [ -d "$X" ]; then rm -rf "$X"; fi` is how a conditional cleanup
+# gets written, so this was a wider hole than the brace group beside it.
+expect BLOCK 'if true; then rm -rf ~/important-project; fi'
+expect BLOCK 'if [ -d /x ]; then rm -rf ~/important-project; fi'
+expect BLOCK 'while true; do rm -rf ~/important-project; break; done'
+expect BLOCK 'until false; do rm -rf ~/important-project; break; done'
+expect BLOCK 'for x in 1; do rm -rf ~/important-project; done'
+expect BLOCK 'if false; then true; else rm -rf ~/important-project; fi'
+expect BLOCK 'if false; then true; elif true; then rm -rf ~/important-project; fi'
+expect BLOCK '! rm -rf ~/important-project'
+expect BLOCK 'case x in x) rm -rf ~/important-project;; esac'
+expect BLOCK 'function f() { rm -rf ~/important-project; }'
+expect BLOCK 'f() { rm -rf ~/important-project; }'
+# ...and the exemption reaches inside every one of them.
+expect ALLOW 'if true; then rm -rf node_modules; fi'
+expect ALLOW 'while true; do rm -rf .venv; break; done'
+expect ALLOW 'for x in 1; do rm -rf node_modules; done'
+expect ALLOW 'case x in x) rm -rf node_modules;; esac'
+expect ALLOW 'function f() { rm -rf node_modules; }'
+expect ALLOW '! rm -rf node_modules'
+# A keyword is peeled at command position only; it is a filename elsewhere.
+expect BLOCK 'rm -rf ~/then'
+expect BLOCK 'rm -rf ~/do'
+
 printf '\npassed %d, failed %d\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

@@ -90,7 +90,7 @@ mistake.
 ## Tests
 
 ```bash
-GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 394 cases
+GUARD=./scripts/bash-guard.sh bash tests/bash-guard.test.sh   # 413 cases
 ```
 
 ```bash

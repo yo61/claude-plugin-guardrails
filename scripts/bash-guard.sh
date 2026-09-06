@@ -791,15 +791,37 @@ rm_candidates() {
 # machinery that did not go through the tokeniser, and quoting any part of
 # the invocation walked straight past it.
 rm_candidate_governed() {
-  local cand=$1 line quoted tok seen_command=0 recursive=0
-  # Groups NEST, so this peels every layer rather than one. Stripping a single
-  # `(` or `{` left the next one glued to the command token, `{ { rm -rf x; }; }`
-  # did not begin with `rm`, and the invocation was ungoverned -- no deny, no
-  # ask. Each pass removes a character, so it always terminates.
-  cand=${cand#"${cand%%[![:space:]]*}"} # ltrim
-  while [[ $cand == "("* || $cand == "{"* ]]; do
-    cand=${cand#[({]}
-    cand=${cand#"${cand%%[![:space:]]*}"}
+  local cand=$1 line quoted tok first seen_command=0 recursive=0
+  # A COMPOUND COMMAND still runs the command inside it, and the wrapping comes
+  # in more shapes than a group: a clause can begin `then`, `do`, `else`, `!`, a
+  # `case` pattern, or a function header. Each of those tokenised to itself as
+  # the command name, so the invocation was not governed and deleted with no
+  # deny and no ask -- and `if [ -d "$X" ]; then rm -rf "$X"; fi` is how a
+  # conditional cleanup actually gets written.
+  #
+  # Peeled in a loop because they nest: `{ { rm -rf x; }; }`, and
+  # `if ...; then { rm -rf x; }; fi` alike. The loop stops when a pass removes
+  # nothing, so an unclosed `case` cannot spin it.
+  local prev=
+  while [[ $cand != "$prev" ]]; do
+    prev=$cand
+    cand=${cand#"${cand%%[![:space:]]*}"} # ltrim
+    case $cand in
+      "("* | "{"*) cand=${cand#?} ;;
+      "!"*) cand=${cand#!} ;;
+      "case "*) cand=${cand#*")"} ;;
+      *)
+        # Tested with `[[ ]]` rather than a `case`: `esac` cannot be a case
+        # pattern without quoting, and every spelling of that reads worse
+        # than the plain list does here.
+        first=${cand%%[[:space:]]*}
+        if [[ $first =~ ^(if|then|elif|else|fi|do|done|while|until)$ ]] \
+          || [[ $first =~ ^(for|select|case|esac|in|function|time)$ ]] \
+          || [[ $first == *"()" || $first == *")" ]]; then
+          cand=${cand#"$first"}
+        fi
+        ;;
+    esac
   done
 
   GOVERNED_TOKENS=()
