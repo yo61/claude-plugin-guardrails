@@ -2,11 +2,10 @@
 
 ## [0.2.2](https://github.com/yo61/claude-plugin-guardrails/compare/v0.2.1...v0.2.2) (2026-09-11)
 
-
-### Bug Fixes
-
-* **deps:** make [#5](https://github.com/yo61/claude-plugin-guardrails/issues/5) mergeable ([3011eff](https://github.com/yo61/claude-plugin-guardrails/commit/3011effda4c7a2522160103f0a92a30c0bb4cff6))
-* **deps:** make [#5](https://github.com/yo61/claude-plugin-guardrails/issues/5) mergeable ([bfe5f00](https://github.com/yo61/claude-plugin-guardrails/commit/bfe5f008dc8b0564db4331a69d5fdbe524d4f692))
+No user-facing changes. CI and dependency-update routing only: the zizmor
+pre-commit hook was bumped, and Dependabot now types tooling updates
+`chore(deps)` so they no longer cut releases
+([#5](https://github.com/yo61/claude-plugin-guardrails/pull/5), [#7](https://github.com/yo61/claude-plugin-guardrails/pull/7)).
 
 ## [0.2.1](https://github.com/yo61/claude-plugin-guardrails/compare/v0.2.0...v0.2.1) (2026-09-06)
 
