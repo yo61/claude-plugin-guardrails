@@ -1,4 +1,11 @@
 version: 2
+
+# Commit type decides whether an update ships. release-please treats every
+# visible changelog section as releasable, so `deps` both lists an update in
+# the changelog and cuts a patch release, while `chore` does neither. Nothing
+# Dependabot watches here reaches users -- pre-commit hooks and Actions are
+# development and CI tooling -- so every ecosystem uses `chore(deps)`. See
+# yo61/jobhound decisions/2026-08-13-dependency-updates-and-releases.md.
 updates:
   - package-ecosystem: "pre-commit"
     directory: "/"
@@ -6,9 +13,8 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
-    # Use a conventional type accepted by commitlint for PR titles.
     commit-message:
-      prefix: "chore"
+      prefix: "chore(deps)"
     groups:
       hooks:
         patterns: ["*"]
@@ -22,7 +28,7 @@ updates:
     cooldown:
       default-days: 7
     commit-message:
-      prefix: "chore"
+      prefix: "chore(deps)"
     groups:
       actions-minor-patch:
         update-types: ["minor", "patch"]
