@@ -882,6 +882,17 @@ EOF"
 expect BLOCK "cat <<EOF
 \$(which python && echo found)
 EOF"
+# A BACKSLASH quotes the delimiter word too, so that body is inert as well.
+expect ALLOW "git commit -F - <<\\EOF
+which resolves to / for a synthetic workspace like /ws.
+EOF"
+# ...and the terminator is still found behind it. Reading the backslash as part
+# of the word left the terminator empty, so the body ran to the end of the input
+# -- blanking that would have taken the command after it too.
+expect BLOCK "cat <<\\EOF
+it is fine
+EOF
+rm -rf ~/important-project"
 # ...and after the terminator it is a command again, body or no body.
 expect BLOCK "git commit -F - <<EOF
 which resolves to /

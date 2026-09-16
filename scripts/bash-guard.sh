@@ -257,7 +257,14 @@ END {
       # A QUOTED delimiter is what makes the body inert. With an unquoted one
       # the shell still expands the body before the command runs, so a `$(...)`
       # or a backtick in there is a live invocation and must stay readable.
-      hdquoted = (qc == SQ || qc == DQ)
+      hdquoted = (qc == SQ || qc == DQ || qc == BS)
+      # A BACKSLASH quotes the delimiter word too, exactly as a quote character
+      # does: any quoting of it suppresses expansion of the body. Reading the
+      # backslash as part of the word left hd empty, which mattered in both
+      # directions -- the body then ran to the end of the input, and blanking it
+      # would have swallowed the commands after the terminator with it. So the
+      # backslash is consumed here and the word behind it is the terminator.
+      if (qc == BS) { out = out BS; i++ }
       if (qc == SQ || qc == DQ) {
         i++
         while (i <= n && substr(buf, i, 1) != qc) { hd = hd substr(buf, i, 1); out = out substr(buf, i, 1); i++ }
