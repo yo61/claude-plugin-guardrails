@@ -55,6 +55,24 @@ rule() {
   add_denial "$2"
 }
 
+# The same rule, asked of the command with heredoc BODIES removed.
+#
+# A body is prose to everything except a shell that might run it, and prose puts
+# a word at the start of a line without meaning a command there. `which resolves
+# to /` inside a commit message read as `which <cmd>` and denied the commit --
+# the same mistake `echo "which one did you mean"` is already exempt from, which
+# BOUNDARY gets right only because a quote is not a command position while a
+# newline is.
+#
+# For an ADVISORY rule that is the whole story: the worst a missed one costs is
+# a style nit. It is deliberately NOT how the destructive rules read a body --
+# an `rm -rf` written inside a heredoc is still denied, because that body may be
+# executed and there the conservative answer is the right one.
+rule_outside_heredoc() {
+  grep -Eq "$1" <<< "$subject_code" || return 0
+  add_denial "$2"
+}
+
 # Raise a denial that a regex over the whole command cannot express. The `rm`
 # rule decides from the parsed invocations instead, and needs to say so without
 # re-deriving the decision as a pattern.
@@ -256,7 +274,11 @@ END {
         }
         t = line
         if (hdstrip) { sub(/^\t+/, "", t) }
-        out = out line "\n"
+        # drop_heredoc blanks the BODY and keeps the newline, so line boundaries
+        # -- and therefore command position -- stay where they were for
+        # everything after the terminator. The terminator is kept: it is syntax,
+        # not body.
+        out = out (drop_heredoc && t != hd ? "" : line) "\n"
         if (t == hd) break
         if (i >= n) break
       }
@@ -986,6 +1008,10 @@ check_tool_choice() {
   #
   # Stripping first makes the two halves agree about what a command is.
   subject=$(printf '%s' "$cmd" | awk "$STRIP_SQ")
+  # ...and the same parser again, told to drop heredoc bodies, for the rules
+  # that must not read prose as code. One parser, two modes: a second
+  # implementation is what this file removes elsewhere, not what it adds.
+  subject_code=$(printf '%s' "$cmd" | awk -v drop_heredoc=1 "$STRIP_SQ")
 
   # `git grep` needs no special case: in `git grep`, the word `grep` sits after
   # a command name rather than at command position, so BOUNDARY skips it. That
@@ -1011,7 +1037,7 @@ check_tool_choice() {
     'This prints the secret. `${VAR:-fallback}` expands to VAR whenever VAR is set, so an "is it set?" check written this way discloses the value on exactly the runs where there is one. Use a form that structurally cannot print it: `[ -n "$VAR" ] && echo "SET len=${#VAR}" || echo UNSET`. Report presence or length, never the value.'
 
   # A POSIX builtin, so this is right in scripts too -- no authoring exemption.
-  rule "${BOUNDARY}which[[:space:]]+[a-zA-Z0-9_.-]+([[:space:]]|$)" \
+  rule_outside_heredoc "${BOUNDARY}which[[:space:]]+[a-zA-Z0-9_.-]+([[:space:]]|$)" \
     'Use `command -v <cmd>`, not `which`. `which` is an external binary with inconsistent behaviour across systems and a non-POSIX exit status; `command -v` is a POSIX shell builtin, so it is also the correct choice inside scripts and GitHub Actions `run:` blocks.'
 
   # Asked of the parsed invocations, not of a pattern over the command text.

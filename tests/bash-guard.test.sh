@@ -862,6 +862,24 @@ expect BLOCK "cat <<EOF
 it's fine
 EOF
 which ls"
+
+# ...but the BODY is prose, and prose puts a word at the start of a line without
+# meaning a command there. This denied a commit whose message said what a
+# dirname resolves to. The ADVISORY rules read the body out; the destructive one
+# above still reads it in, because that body may be executed and a deletion
+# there is worth a conservative answer. A style nit is not.
+expect ALLOW "git commit -F - <<EOF
+A sibling, because it needs no dirname arithmetic,
+which resolves to / for a synthetic workspace like /ws.
+EOF"
+expect ALLOW "git commit -F - <<'EOF'
+which resolves to / here too -- a quoted delimiter is still a body.
+EOF"
+# ...and after the terminator it is a command again, body or no body.
+expect BLOCK "git commit -F - <<EOF
+which resolves to /
+EOF
+which ls"
 expect BLOCK "cat > s.txt <<EOF
 it's fine
 EOF
