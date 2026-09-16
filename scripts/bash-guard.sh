@@ -254,6 +254,10 @@ END {
       }
       hd = ""
       qc = substr(buf, i, 1)
+      # A QUOTED delimiter is what makes the body inert. With an unquoted one
+      # the shell still expands the body before the command runs, so a `$(...)`
+      # or a backtick in there is a live invocation and must stay readable.
+      hdquoted = (qc == SQ || qc == DQ)
       if (qc == SQ || qc == DQ) {
         i++
         while (i <= n && substr(buf, i, 1) != qc) { hd = hd substr(buf, i, 1); out = out substr(buf, i, 1); i++ }
@@ -278,7 +282,11 @@ END {
         # -- and therefore command position -- stay where they were for
         # everything after the terminator. The terminator is kept: it is syntax,
         # not body.
-        out = out (drop_heredoc && t != hd ? "" : line) "\n"
+        #
+        # Only for a QUOTED delimiter. `cat <<EOF` still expands its body, so
+        # `$(which python)` in there is a command the shell really runs, and
+        # blanking it unconditionally hid one the guard used to catch.
+        out = out (drop_heredoc && hdquoted && t != hd ? "" : line) "\n"
         if (t == hd) break
         if (i >= n) break
       }

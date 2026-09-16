@@ -868,12 +868,19 @@ which ls"
 # dirname resolves to. The ADVISORY rules read the body out; the destructive one
 # above still reads it in, because that body may be executed and a deletion
 # there is worth a conservative answer. A style nit is not.
-expect ALLOW "git commit -F - <<EOF
+expect ALLOW "git commit -F - <<'EOF'
 A sibling, because it needs no dirname arithmetic,
 which resolves to / for a synthetic workspace like /ws.
 EOF"
-expect ALLOW "git commit -F - <<'EOF'
-which resolves to / here too -- a quoted delimiter is still a body.
+# ...and only a QUOTED delimiter earns that. `<<EOF` is still expanded by the
+# shell before the command runs, so that body is not inert and is read as before.
+expect BLOCK "git commit -F - <<EOF
+which resolves to / for a synthetic workspace like /ws.
+EOF"
+# The reason it is not inert, spelled out: a substitution in an unquoted body is
+# a command the shell really runs. Blanking every body hid exactly this one.
+expect BLOCK "cat <<EOF
+\$(which python && echo found)
 EOF"
 # ...and after the terminator it is a command again, body or no body.
 expect BLOCK "git commit -F - <<EOF
