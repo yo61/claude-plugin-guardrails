@@ -862,6 +862,42 @@ expect BLOCK "cat <<EOF
 it's fine
 EOF
 which ls"
+
+# ...but the BODY is prose, and prose puts a word at the start of a line without
+# meaning a command there. This denied a commit whose message said what a
+# dirname resolves to. The ADVISORY rules read the body out; the destructive one
+# above still reads it in, because that body may be executed and a deletion
+# there is worth a conservative answer. A style nit is not.
+expect ALLOW "git commit -F - <<'EOF'
+A sibling, because it needs no dirname arithmetic,
+which resolves to / for a synthetic workspace like /ws.
+EOF"
+# ...and only a QUOTED delimiter earns that. `<<EOF` is still expanded by the
+# shell before the command runs, so that body is not inert and is read as before.
+expect BLOCK "git commit -F - <<EOF
+which resolves to / for a synthetic workspace like /ws.
+EOF"
+# The reason it is not inert, spelled out: a substitution in an unquoted body is
+# a command the shell really runs. Blanking every body hid exactly this one.
+expect BLOCK "cat <<EOF
+\$(which python && echo found)
+EOF"
+# A BACKSLASH quotes the delimiter word too, so that body is inert as well.
+expect ALLOW "git commit -F - <<\\EOF
+which resolves to / for a synthetic workspace like /ws.
+EOF"
+# ...and the terminator is still found behind it. Reading the backslash as part
+# of the word left the terminator empty, so the body ran to the end of the input
+# -- blanking that would have taken the command after it too.
+expect BLOCK "cat <<\\EOF
+it is fine
+EOF
+rm -rf ~/important-project"
+# ...and after the terminator it is a command again, body or no body.
+expect BLOCK "git commit -F - <<EOF
+which resolves to /
+EOF
+which ls"
 expect BLOCK "cat > s.txt <<EOF
 it's fine
 EOF
