@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.3](https://github.com/yo61/claude-plugin-guardrails/compare/v0.2.2...v0.2.3) (2026-09-18)
+
+
+### Bug Fixes
+
+* a backslash quotes the delimiter word too ([6419e3e](https://github.com/yo61/claude-plugin-guardrails/commit/6419e3ed4582feef58b9aaa21a7122663e143943))
+* only an inert heredoc body is prose ([96c7cf3](https://github.com/yo61/claude-plugin-guardrails/commit/96c7cf3bd9c7e6a4e5c80c7e4f9d0e1669dbd198))
+* read a heredoc body as prose for the advisory rules ([76e4dd4](https://github.com/yo61/claude-plugin-guardrails/commit/76e4dd4585c694fe153fd225755fbf0c0cc08ca2))
+* read a heredoc body as prose for the advisory rules ([4a40479](https://github.com/yo61/claude-plugin-guardrails/commit/4a4047916d012bea527ca4bb1b36fc268d93eb20))
+
 ## [0.2.2](https://github.com/yo61/claude-plugin-guardrails/compare/v0.2.1...v0.2.2) (2026-09-11)
 
 No user-facing changes. CI and dependency-update routing only: the zizmor
