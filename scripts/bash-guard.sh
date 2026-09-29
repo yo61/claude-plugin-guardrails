@@ -42,6 +42,25 @@ readonly RUNNER='((npx|uvx|pnpm|yarn|bunx)[[:space:]]+(exec[[:space:]]+)?|python
 # A token cannot contain a command separator, so a flag appearing after a `|`
 # or `;` is never attributed to the earlier command.
 readonly TOKENS='([[:space:]]+[^;|&[:space:]]+)*'
+# Option tokens only. Between a subcommand and its flags, a token that does
+# NOT start with `-` is an operand -- for git add, a pathspec, which scopes
+# the command whichever side of the flag it falls.
+readonly OPTS_ONLY='([[:space:]]+-[^[:space:];|&]*)*'
+# The same, for tokens AFTER the flag, where a bare `--` must NOT be consumed:
+# it introduces a pathspec, and `-weird-file` after it is a path rather than an
+# option. So an option here is a single dash followed by a non-dash, or a double
+# dash followed by at least one character -- both of which exclude `--` itself.
+readonly TRAIL_OPTS='([[:space:]]+(-[^-[:space:];|&][^[:space:];|&]*|--[^[:space:];|&]+))*'
+# git resolves its own global options before the subcommand, so a `-C`, `-c`,
+# `--git-dir` or `--work-tree` sitting between `git` and the subcommand hides
+# the literal spelling a rule matches on.
+#
+# Only option tokens and their values pass through -- NOT arbitrary tokens.
+# A commit message that quotes a banned form is ordinary prose, and a gap
+# admitting any token matches that prose as readily as the real invocation.
+readonly GIT_GLOBAL_OPTS='([[:space:]]+-[^[:space:];|&]*([[:space:]]+[^-[:space:];|&][^[:space:];|&]*)?)*'
+# Leading VAR=value assignments, which put the command name past the boundary.
+readonly ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=[^[:space:];|&]*[[:space:]]+)*'
 
 denials=()
 prompts=()
@@ -1148,7 +1167,52 @@ zsh_portability_clause_rules() {
 }
 
 check_git_safety() {
-  subject=$cmd
+  # Strip single-quoted content first, as check_tool_choice and
+  # check_zsh_portability do: a filename may legitimately contain `-A` or a
+  # lone `.`, and a quoted pathspec holding one still names its path.
+  subject=$(printf '%s' "$cmd" | awk "$STRIP_SQ")
+
+  # Deny, not ask: there is no case for it here. Robin edits these clones from his
+  # own sessions concurrently, so the tree can hold his in-progress work at any
+  # moment -- measured 2026-09-28, when four `git add -A` calls in
+  # yo61/flux-homelab ran while he had a talos/talconfig.yaml change staged on
+  # main for the 1.37.1 upgrade. Nothing of his was committed, by timing alone.
+  #
+  # Option abbreviations and the --no-ignore-removal synonym are deliberately
+  # NOT covered, though both stage everything: git resolves any unambiguous
+  # prefix, so --al works as well as --all. This hook exists to stop an agent
+  # reaching for the form it would actually write. Short of parsing shell it
+  # cannot be a boundary, and chasing spellings nothing emits buys no safety.
+  #
+  # Precision: only the forms that stage paths NOBODY NAMED. `-p`, `-u <path>`,
+  # `--` and any explicit path stay allowed, and `./src/main.go` and `.gitignore`
+  # are paths rather than `.`. `..` and `../..` are covered too: they name no
+  # path either, just a subtree one level up.
+  #
+  # The flag must be the ONLY operand on the command, because it is SCOPED by a
+  # pathspec when one is given -- git-add(1): "If no <pathspec> is given when
+  # -A option is used, all files in the entire working tree are updated". A
+  # form naming a directory stages only that directory, so denying it would
+  # make the message below false about its own subject. A pathspec counts on
+  # EITHER side of the flag: verified against git 2.55.0, `git add sub <flag>`
+  # staged sub/ and left a sibling directory untracked, exactly as the
+  # flag-first spelling does. Hence OPTS_ONLY before the flag and TRAIL_OPTS
+  # after it: other OPTIONS on either side leave the command just as untargeted,
+  # and retrying a denied call with an extra flag is the obvious next reflex.
+  #
+  # A trailing bare `--` is the exception TRAIL_OPTS must not swallow. Alone it
+  # still names nothing and is denied, but followed by anything it introduces a
+  # pathspec -- `-A -- -weird-file` names a dash-prefixed file and is allowed.
+  #
+  # The terminator takes `;`, `|` and `&` as well as whitespace and end, or an
+  # unspaced one-liner walks straight past the rule.
+  #
+  # `git commit -a` is deliberately NOT here: `-A` inside a -m message
+  # ("explain why git add -A is banned") is an ordinary thing to write, and a
+  # rule that cannot separate the option from the prose would block commits --
+  # the most expensive false positive available.
+  rule "${BOUNDARY}${ENV_PREFIX}git${GIT_GLOBAL_OPTS}[[:space:]]+add${OPTS_ONLY}[[:space:]]+(-[a-zA-Z]*A[a-zA-Z]*|--all|(\.\./)*\.\.?/?)${TRAIL_OPTS}([[:space:]]+--)?[[:space:]]*([;|&]|\$)" \
+    'This stages every change in the tree, not the ones you meant. Another session may be editing the same clone, so a change that is not yours -- staged or merely modified -- lands in your commit and your PR. Name the paths instead: `git add path/one path/two`, then read `git status --porcelain` and check nothing foreign is staged before committing.'
 
   # Prompt rather than deny: pushing a fork's main after a --ff-only merge from
   # upstream is routine, and Robin has explicitly authorised such a push before
