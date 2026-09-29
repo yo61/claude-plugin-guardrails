@@ -336,6 +336,77 @@ expect ASK 'git merge --ff-only upstream/main && git push origin main'
 expect ALLOW 'git push -u origin feat/import-remaining-mu-plugins'
 expect ALLOW 'git push origin main-is-not-the-target-here'
 
+echo "--- git add: deny the forms that stage paths nobody named ---"
+expect BLOCK 'git add -A'
+expect BLOCK 'git add -A .'
+expect BLOCK 'git add --all'
+expect BLOCK 'git add .'
+expect BLOCK 'git add ./'
+expect BLOCK 'git add -Av'
+expect BLOCK 'cd ~/repo && git add -A'
+expect BLOCK 'git add -A && git commit -m "x"'
+# The allow half. A guard that blocks ordinary staging gets switched off.
+expect ALLOW 'git add src/main.go'
+expect ALLOW 'git add apps/kustomization.yaml apps/monitoring/x.yaml'
+expect ALLOW 'git add -p src/main.go'
+expect ALLOW 'git add -u src/'
+expect ALLOW 'git add -- path/with-dash.md'
+expect ALLOW 'git add .gitignore'
+expect ALLOW 'git add ./src/main.go'
+# The terminator takes a separator as well as whitespace: an unspaced
+# one-liner is the same command.
+expect BLOCK 'git add -A;git commit -m x'
+expect BLOCK 'git add -A|cat'
+expect BLOCK 'git add --all&&git commit -m x'
+# The flag is SCOPED by a pathspec when one is given -- git-add(1) says the
+# whole tree is updated only when no pathspec follows. These name their
+# paths, and the deny message would be false for every one of them.
+expect ALLOW 'git add -A src/main.go'
+expect ALLOW 'git add --all src/'
+expect ALLOW 'git add -A -- path/with-dash.md'
+# A pathspec scopes the command from EITHER side of the flag, so the
+# reversed spelling is as targeted as the flag-first one.
+expect ALLOW 'git add sub -A'
+expect ALLOW 'git add src/ --all'
+# An OPTION before the flag is not a pathspec, and targets nothing.
+expect BLOCK 'git add -v -A'
+# An option on either side leaves the command untargeted. Retrying a denied
+# call with one more flag is the reflex this has to survive.
+expect BLOCK 'git add -A --force'
+expect BLOCK 'git add -A -u'
+expect BLOCK 'git add . -v'
+expect BLOCK 'git add -A --'
+# ...but `--` followed by anything introduces a pathspec, and a dash-prefixed
+# filename is exactly why someone writes it.
+expect ALLOW 'git add -A -- -weird-file'
+# A pathspec is allowed to CONTAIN the spelling of an option. check_git_safety
+# strips single-quoted content first, as the other two check functions do, so a
+# quoted filename holding a standalone -A token or a lone . word is still a
+# named path and not the all-staging form.
+expect ALLOW "git add 'release notes -A summary.md'"
+expect ALLOW "git add 'my file . notes.md'"
+# `..` names no path either, it names a subtree one level up. Deeper chains are
+# the same command with more dots.
+expect BLOCK 'git add ..'
+expect BLOCK 'git add ../'
+expect BLOCK 'git add ../..'
+expect BLOCK 'git add ../../..'
+expect ALLOW 'git add ../foo'
+expect ALLOW 'git add ../subdir/'
+# git global options hide the literal spelling: the subcommand is still add.
+expect BLOCK 'git -C /tmp/repo add -A'
+expect BLOCK 'git -c core.fileMode=false add -A'
+expect BLOCK 'git --git-dir=/r/.git --work-tree=/r add -A'
+expect BLOCK 'GIT_DIR=/r/.git git add -A'
+expect BLOCK 'git -C /tmp/repo add --all'
+# ...but only option tokens pass through. A subcommand is not an option, so
+# prose after -m is still prose.
+expect ALLOW 'git -C /tmp/repo add src/main.go'
+expect ALLOW 'git -C /tmp/repo commit -m "why git add -A is banned"'
+# Prose about the rule is not the rule. Both of these discuss it and neither runs it.
+expect ALLOW 'echo "never use git add -A"'
+expect ALLOW 'git commit -m "explain why git add -A is banned"'
+
 # A bash-only variable name is evidence the subject is bash source, so the
 # zsh rules step aside. Without this the guard blocked its own author for
 # writing ${BASH_SOURCE[0]} into a script, and advised an index that is equally
