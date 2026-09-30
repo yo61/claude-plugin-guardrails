@@ -182,6 +182,21 @@ expect BLOCK 'rm -rf tmp'
 expect BLOCK 'rm -rf ./tmp'
 expect BLOCK 'rm -rf src/tmp/cache'
 expect ALLOW 'rm -rf /var/folders/ab/cd'
+# The TARGET HAS TO BE SPELLED OUT, and the denial message now says so. A
+# variable cannot be judged from the command text -- $TMPDIR could name the
+# machine's scratch mount or a project directory, and the guard sees neither --
+# so unknown stays protected. Both halves are asserted because this is the rule
+# most likely to be mistaken for a hole in the exemption: a reviewer who tried
+# `rm -rf "$parent"` on a mktemp directory, saw it denied, and read the message's
+# "temp trees are exempt" reached for the exemption list rather than this rule,
+# and reported a bug that was not there.
+expect BLOCK 'rm -rf "$TMPDIR/x"'
+expect BLOCK 'rm -rf $parent'
+expect ALLOW 'rm -rf /var/folders/hb/x/T/tmp.AAA'
+# A relative path earns the exemption from its NAME, not from being relative: a
+# disposable name is exempt at any depth, and anything else relative is not.
+expect ALLOW 'rm -rf app/packages/ui/node_modules'
+expect BLOCK 'rm -rf probews'
 expect ALLOW 'rm -rf target/debug'
 expect ALLOW 'rm -rf target/release'
 expect ALLOW 'rm -rf dist'

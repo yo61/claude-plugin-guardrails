@@ -1078,7 +1078,7 @@ check_tool_choice() {
   # `governed_rm_present` and the target scan share one enumeration and one
   # test, so there is no second implementation left to disagree with.
   if governed_rm_present && ! all_rm_targets_disposable; then
-    add_denial 'Use `trash <path>`, not a recursive `rm` -- it moves to the macOS Trash and stays recoverable. This covers every spelling of the flag (`-rf`, `-r -f`, `--recursive`), and `-f` is not what makes it unrecoverable: `rm -r` deletes the tree just the same. (Scratch, temp and regenerable trees such as /tmp, node_modules and .venv are exempt and not blocked; `trash` is the wrong tool for those.)'
+    add_denial 'Use `trash <path>`, not a recursive `rm` -- it moves to the macOS Trash and stays recoverable. This covers every spelling of the flag (`-rf`, `-r -f`, `--recursive`), and `-f` is not what makes it unrecoverable: `rm -r` deletes the tree just the same. (Scratch, temp and regenerable trees are exempt and not blocked -- a disposable name at any depth such as node_modules or .venv, and the absolute scratch mounts /tmp and /var/folders; `trash` is the wrong tool for those. The target has to be SPELLED OUT to earn that: a variable cannot be judged from the command text, so it stays protected.)'
   fi
 
   if targets_real_bash; then
