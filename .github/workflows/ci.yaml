@@ -71,7 +71,7 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -121,3 +121,15 @@ jobs:
       # line of a multi-line case, reporting those files clean.
       - name: inert-cases test suite
         run: CHECK="$PWD/tests/inert-cases.sh" bash tests/inert-cases.test.sh
+
+      # Runs every hook in .pre-commit-config.yaml, so local and CI cannot
+      # drift: jactionlint, zizmor and the pre-commit-hooks checks run nowhere
+      # else in CI. The local shfmt hook needs the shfmt installed above.
+      # commitlint is a commit-msg hook, which --all-files skips; the
+      # Conventional Commits job covers it.
+      - uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204  # v3.0.1
+        env:
+          # renovate: datasource=github-releases depName=j178/prek extractVersion=^v(?<version>.+)$
+          PREK_VERSION: 0.5.5
+        with:
+          prek-version: ${{ env.PREK_VERSION }}
