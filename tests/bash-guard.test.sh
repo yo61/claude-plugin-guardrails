@@ -10,7 +10,7 @@ set -uo pipefail
 GUARD="${GUARD:-$HOME/.claude/hooks/bash-guard.sh}"
 # Resolve to an ABSOLUTE path up front. One case below runs the guard from a
 # temp cwd, and the prek hook passes a relative path (`./scripts/bash-guard.sh`)
-# while CI passes an absolute one -- so a relative GUARD broke the local hook
+# while CI then passed an absolute one -- a relative GUARD broke the local hook
 # while CI stayed green.
 GUARD=$(cd "$(dirname "$GUARD")" && printf '%s/%s' "$PWD" "$(basename "$GUARD")")
 

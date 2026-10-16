@@ -78,8 +78,8 @@ shapes; `README.md` "Known false positive".
       copy. The harness defaults `GUARD`/`GATE` to the hook under
       `~/.claude/hooks`, so an invocation without an explicit `env GUARD=...`
       validates a different file: a broken script in the tree would pass, and
-      a broken installed copy would fail a clean commit. CI and
-      `.pre-commit-config.yaml` must both set it explicitly.
+      a broken installed copy would fail a clean commit. The hook entries in
+      `.pre-commit-config.yaml`, which CI runs, must set it explicitly.
       *(automated: `guard-tests`, `rebase-gate-tests`)*
     - A documented case count in the README matches the suite.
 
