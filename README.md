@@ -104,7 +104,7 @@ string; neither shellcheck nor shfmt covers that.
 
 `GUARD` defaults to the installed hook at `~/.claude/hooks/bash-guard.sh`, so
 without it the suite reports on the copy you have installed rather than the one
-you are editing. The prek hook and CI both pass the repository path.
+you are editing. The prek hook, which CI also runs, passes the repository path.
 
 Lint: `shellcheck scripts/*.sh` and `shfmt -i 2 -bn -ci -sr -d scripts/*.sh`.
 
